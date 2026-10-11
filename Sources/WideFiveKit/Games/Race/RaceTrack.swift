@@ -155,7 +155,11 @@ final class RaceTrack {
         }
         // light smoothing so corners ease in/out
         var smooth = dtheta
-        for i in 0..<n { smooth[i] = (-2...2).reduce(0) { $0 + dtheta[(i + $1 + n) % n] } / 5 }
+        for i in 0..<n {
+            var sum: CGFloat = 0
+            for k in -2...2 { sum += dtheta[(i + k + n) % n] }
+            smooth[i] = sum / 5
+        }
         let curves = smooth.map { max(-3, min(3, -$0 * Self.curveK)) }
 
         func elev(_ f: CGFloat) -> CGFloat {

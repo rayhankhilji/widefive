@@ -134,7 +134,13 @@ public final class Particles {
                       spread: CGFloat = .pi * 2, upBias: CGFloat = 0.4) {
         guard !colors.isEmpty else { return }
         for _ in 0..<count {
-            let a: CGFloat = direction.map { $0 + CGFloat.random(in: -spread / 2...spread / 2) } ?? CGFloat.random(in: 0...(2 * .pi))
+            let a: CGFloat
+            if let d = direction {
+                let half: CGFloat = spread / 2
+                a = d + CGFloat.random(in: -half...half)
+            } else {
+                a = CGFloat.random(in: 0...(2 * CGFloat.pi))
+            }
             let s = CGFloat.random(in: speed * 0.3...max(speed * 0.3 + 0.01, speed))
             let l = life * CGFloat.random(in: 0.7...1.15)
             items.append(Particle(x: x, y: y, vx: cos(a) * s, vy: sin(a) * s + (direction == nil ? speed * upBias : 0), life: l, maxLife: l,

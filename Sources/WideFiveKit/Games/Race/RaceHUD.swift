@@ -216,7 +216,12 @@ extension RaceGame {
             let x = rect.minX + q.x * rect.width, y = rect.minY + q.y * rect.height
             let w: CGFloat = 1.8, h = 1.1 * abs(cos(q.rot))
             let ca = cos(q.rot * 0.7), sa = sin(q.rot * 0.7)
-            let pts = [(-w, -h), (w, -h), (w, h), (-w, h)].map { CGPoint(x: x + ($0.0 * ca - $0.1 * sa) / 2, y: y + ($0.0 * sa + $0.1 * ca) / 2) }
+            let corners: [(CGFloat, CGFloat)] = [(-w, -h), (w, -h), (w, h), (-w, h)]
+            let pts: [CGPoint] = corners.map { c -> CGPoint in
+                let dx: CGFloat = (c.0 * ca - c.1 * sa) / 2
+                let dy: CGFloat = (c.0 * sa + c.1 * ca) / 2
+                return CGPoint(x: x + dx, y: y + dy)
+            }
             pen.poly(pts, q.col.alpha(RK.clamp(q.life)))
         }
     }

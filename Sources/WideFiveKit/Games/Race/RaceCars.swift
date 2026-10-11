@@ -235,7 +235,14 @@ private struct Painter {
         pen.poly([(-0.4, 0.03), (0.4, 0.03), (0.45, 0.135), (-0.45, 0.135)], Self.carbon)
         fins(-0.32, 0.32, 0.035, 0.125, 6)
         // hexagonal exhaust
-        let hex: (CGFloat) -> [(CGFloat, CGFloat)] = { r in (0..<6).map { (cos(CGFloat($0) * .pi / 3) * r * 1.25, 0.12 + sin(CGFloat($0) * .pi / 3) * r) } }
+        let hex: (CGFloat) -> [(CGFloat, CGFloat)] = { r in
+            (0..<6).map { i -> (CGFloat, CGFloat) in
+                let a: CGFloat = CGFloat(i) * .pi / 3
+                let px: CGFloat = cos(a) * r * 1.25
+                let py: CGFloat = 0.12 + sin(a) * r
+                return (px, py)
+            }
+        }
         pen.poly(hex(0.05), Self.chrome); pen.poly(hex(0.036), RCol(0x0a0a0a))
         plate(0, 0.165, 0.15, 0.05)
         // Y-shaped lights inside hexagonal housings
