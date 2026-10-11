@@ -11,7 +11,9 @@ public final class DuoInput {
     /// How many touch pads to show (1 when playing a bot).
     public var players = 2
     private var owners: [Int: (Int, String)] = [:]
-    private let btn: CGFloat = 30
+    private let btn: CGFloat = 25
+    private let gap: CGFloat = 2
+    private let groupGap: CGFloat = 5
 
     public init() {}
 
@@ -38,10 +40,16 @@ public final class DuoInput {
         if let (p, b) = map { set(p, b, down) }
     }
 
+    /// Compact pill buttons: movement group, a small gap, then the action group. P1 hugs the left chrome, P2 the right edge.
     public func rects(_ p: Int) -> [(String, CGRect)] {
-        let n = CGFloat(layout.count)
-        let x0 = p == 0 ? StripController.gameChromeWidth + 2 : width - n * (btn + 2)
-        return layout.enumerated().map { ($0.element, CGRect(x: x0 + CGFloat($0.offset) * (btn + 2), y: 1, width: btn, height: 28)) }
+        let moves = layout.filter { ["L", "R", "U", "D"].contains($0) }.count
+        let total = CGFloat(layout.count) * (btn + gap) - gap + (moves > 0 && moves < layout.count ? groupGap : 0)
+        var x = p == 0 ? StripController.gameChromeWidth + 3 : width - total - 3
+        return layout.enumerated().map { i, b in
+            if i == moves, moves > 0 { x += groupGap }
+            defer { x += btn + gap }
+            return (b, CGRect(x: x, y: 4, width: btn, height: 22))
+        }
     }
 
     private func hit(_ x: CGFloat) -> (Int, String)? {
@@ -65,13 +73,16 @@ public final class DuoInput {
 
     func draw(_ c: Canvas, colors: [NSColor] = [Pal.cyan, Pal.magenta]) {
         guard visible else { return }
-        let labels = ["L": "◀", "R": "▶", "U": "▲", "D": "▼", "F": "●", "S": "★"]
         for p in 0..<players {
-            for (b, r) in rects(p) {
-                let on = held[p].contains(b)
-                c.roundRect(r, radius: 6, fill: colors[p].withAlphaComponent(on ? 0.7 : 0.22), stroke: NSColor(white: 1, alpha: 0.3), lineWidth: 0.6)
-                c.text(labels[b] ?? b, x: r.midX, size: 11, color: .white, weight: .heavy, align: .center)
-            }
+            let rs = rects(p)
+            guard let first = rs.first?.1, let last = rs.last?.1 else { continue }
+            let tint = colors.indices.contains(p) ? colors[p] : Pal.cyan
+            let back = CGRect(x: first.minX - 2, y: first.minY - 2, width: last.maxX - first.minX + 4, height: first.height + 4)
+            c.roundRect(back, radius: back.height / 2, fill: NSColor(white: 0, alpha: 0.28), stroke: tint.withAlphaComponent(0.18), lineWidth: 0.5)
+            for (b, r) in rs { TouchButton.draw(c, r, glyph: b, on: held[p].contains(b), tint: tint) }
+            let tag = p == 0 ? "P1" : "P2"
+            let tx = p == 0 ? back.maxX + 2 : back.minX - 2
+            c.text(tag, x: tx, y: back.midY - 2.5, size: 5, color: tint.withAlphaComponent(0.7), weight: .black, align: p == 0 ? .left : .right)
         }
     }
 }
