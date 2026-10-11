@@ -34,7 +34,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         p.hideControlStrip = store.config.hideControlStrip
         p.replaceEscKey = store.config.replaceEscKey
         presenter = p
+        p.onStatusChange = { [weak self] in self?.rebuildMenu() }
         p.present()
+        // The Touch Bar server sometimes ignores a presentation made during launch; ask again once things settle.
+        for delay in [0.6, 2.5] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.represent() }
+        }
+        let ws = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.sessionDidBecomeActiveNotification] {
+            ws.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.represent() }
+        }
+        DistributedNotificationCenter.default().addObserver(forName: .init("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
+            self?.represent()
+        }
 
         controller.onModeChange = { [weak self] _ in self?.rebuildMenu() }
         controller.onThemePicked = { [weak self] name in self?.mutateConfig { $0.theme = name } }
@@ -66,9 +78,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let presenter else { return }
         if store.config.layout(for: app.bundleIdentifier)?.passthrough == true {
             presenter.minimize()
-        } else if !presenter.isPresented {
+        } else {
             presenter.present()
         }
+    }
+
+    private func represent() {
+        guard let presenter else { return }
+        let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        if store.config.layout(for: front)?.passthrough == true { return }
+        presenter.present()
     }
 
     // MARK: Hotkeys
@@ -173,6 +192,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let hw = NSMenuItem(title: Hardware.shared.summary, action: nil, keyEquivalent: "")
         hw.isEnabled = false
         menu.addItem(hw)
+        let tb = NSMenuItem(title: "Touch Bar: \(presenter?.status ?? "—")", action: nil, keyEquivalent: "")
+        tb.isEnabled = false
+        menu.addItem(tb)
         menu.addItem(.separator())
         for m in controller.registry.modes {
             let i = item(m.title, #selector(pickMode(_:)), state: m.id == controller.current.id)

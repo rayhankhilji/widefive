@@ -12,6 +12,9 @@ public final class TouchBarPresenter: NSObject, NSTouchBarDelegate {
     private var trayItem: NSCustomTouchBarItem?
     public var hideControlStrip = true
     public private(set) var isPresented = false
+    /// Human-readable result of the last present() call, shown in the menu and logged.
+    public private(set) var status = "not presented yet"
+    public var onStatusChange: (() -> Void)?
 
     public init(stripView: StripView) {
         self.stripView = stripView
@@ -68,7 +71,7 @@ public final class TouchBarPresenter: NSObject, NSTouchBarDelegate {
         trayItem = item
         if let (f, sel) = Self.classIMP(NSTouchBarItem.self, "addSystemTrayItem:", as: ClassVoidObj.self) {
             f(NSTouchBarItem.self, sel, item)
-        }
+        } else { NSLog("widefive: addSystemTrayItem: unavailable") }
         if let h = Self.dfr, let s = dlsym(h, "DFRElementSetControlStripPresenceForIdentifier") {
             unsafeBitCast(s, to: DFRSetPresence.self)(Self.trayID.rawValue as CFString, true)
         }
@@ -82,18 +85,40 @@ public final class TouchBarPresenter: NSObject, NSTouchBarDelegate {
             unsafeBitCast(s, to: DFRShowsCloseBox.self)(false)
         }
         let tray = Self.trayID.rawValue as NSString
+        var method = ""
         if hideControlStrip,
            let (f, sel) = Self.classIMP(NSTouchBar.self, "presentSystemModalTouchBar:placement:systemTrayItemIdentifier:", as: PresentWithPlacement.self) {
             f(NSTouchBar.self, sel, touchBar, 1, tray)
+            method = "placement"
         } else if let (f, sel) = Self.classIMP(NSTouchBar.self, "presentSystemModalTouchBar:systemTrayItemIdentifier:", as: PresentWithTray.self) {
             f(NSTouchBar.self, sel, touchBar, tray)
+            method = "touchbar"
         } else if let (f, sel) = Self.classIMP(NSTouchBar.self, "presentSystemModalFunctionBar:systemTrayItemIdentifier:", as: PresentWithTray.self) {
             f(NSTouchBar.self, sel, touchBar, tray)
+            method = "functionbar"
         } else {
-            NSLog("widefive: system-modal Touch Bar API not available on this macOS")
+            status = "system-modal API missing on this macOS"
+            NSLog("widefive: %@", status)
             return
         }
         isPresented = true
+        status = "presented (\(method)), checking…"
+        NSLog("widefive: present via %@ (DFRFoundation %@, strip %.0fpt)", method, Self.dfr == nil ? "NOT loaded" : "loaded", stripView.preferredWidth)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.verify(method) }
+    }
+
+    /// The strip view only gets a window once the Touch Bar server actually hosts it.
+    private func verify(_ method: String) {
+        guard isPresented else { return }
+        if let w = stripView.window, stripView.bounds.height > 0 {
+            status = "showing (\(method), \(Int(stripView.bounds.width))pt)"
+            NSLog("widefive: strip hosted in %@ frame=%@", String(describing: type(of: w)), NSStringFromRect(stripView.frame))
+        } else {
+            let size = stripView.window == nil ? "no window" : "\(Int(stripView.bounds.width))×\(Int(stripView.bounds.height))pt"
+            status = "not showing (\(method), \(size))"
+            NSLog("widefive: %@", status)
+        }
+        onStatusChange?()
     }
 
     /// Temporarily hand the Touch Bar back to the frontmost app.
