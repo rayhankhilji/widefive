@@ -194,7 +194,7 @@ enum Arcade {
         }
         let total = widths.reduce(0, +) + CGFloat(items.count - 1) * 10 + 14
         let r = CGRect(x: (right ?? c.width - 4) - total, y: 3, width: total, height: 24)
-        c.roundRect(r, radius: 8, fill: NSColor(hex: "#06050c", alpha: 0.55), stroke: accent.withAlphaComponent(0.35), lineWidth: 0.6)
+        c.roundRect(r, radius: 8, fill: NSColor(hex: "#06050c", alpha: 0.72), stroke: accent.withAlphaComponent(0.35), lineWidth: 0.6)
         var x = r.minX + 7
         for (i, it) in items.enumerated() {
             c.text(it.label, x: x, y: 16, size: 5.5, color: accent.withAlphaComponent(0.9), weight: .heavy)

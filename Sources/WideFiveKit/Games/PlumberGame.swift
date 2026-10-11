@@ -104,7 +104,7 @@ public final class PlumberGame: StripMode, DemoStartable {
     }
 
     func resetPlayer() {
-        player = Body(x: 40, y: 5, w: 6, h: big ? 10 : 7)
+        player = Body(x: 70, y: 5, w: 6, h: big ? 10 : 7)
         camX = 0; invuln = 0; starTime = 0
         controls.reset()
     }
@@ -398,7 +398,7 @@ public final class PlumberGame: StripMode, DemoStartable {
         func gap(_ a: CGFloat) -> Bool { world.get(Int((player.x + player.w + a) / T), row - 1) == .empty }
         let foe = enemies.contains { !$0.dead && $0.squashed == nil && $0.body.x > player.x && $0.body.x - player.x < 20 }
         if player.onGround, wall(3) || gap(4) || foe { controls.jumpPressed = true; controls.jump = true }
-        if !player.onGround { controls.jump = player.vy > 0 }
+        if !player.onGround { controls.jump = player.vy > 70 }
     }
 
     func drawPlayer(_ c: Canvas) {

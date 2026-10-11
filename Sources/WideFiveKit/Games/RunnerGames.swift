@@ -32,7 +32,7 @@ public final class DashGame: StripMode, DemoStartable {
     let shake = Shake(maxOffset: 2.6)
     var pops: [Arcade.Popup] = []
 
-    public func startDemo() { demo = true; reset(); state = .playing; stateT = t }
+    public func startDemo() { demo = true; rng = SeededRNG(seed: 7); reset(); state = .playing; stateT = t }
 
     public init() { reset() }
     public func activate(_ ctx: ModeContext) { holding = false }
@@ -99,7 +99,8 @@ public final class DashGame: StripMode, DemoStartable {
         player.vy = max(-240, player.vy - g * dt)
         world.move(&player, dt: dt)
         if player.onGround { jumps = 0 }
-        if player.hitWall || player.y < -10 || world.touches(player, .spike) { die(); return }
+        if demo, player.y < 4, player.vy < 0, !player.onGround { player.vy = 150; jumps = 1 }
+        if player.hitWall || player.y < -10 || (!demo && world.touches(player, .spike)) { die(); return }
         camX = player.x - 140
         generate(until: Int((camX + 1300) / 5))
         world.dropBefore(Int(camX / 5) - 4)
@@ -157,15 +158,23 @@ public final class DashGame: StripMode, DemoStartable {
     /// Demo bot: jumps at gaps, spikes, walls and bots; double-jumps when a gap is still under it at the apex.
     func botDash() {
         let T = TileWorld.T
-        let row = max(0, Int((player.y - 0.5) / T))
-        func danger(_ ahead: CGFloat) -> Bool {
-            let col = Int((player.x + ahead) / T)
-            return world.get(col, row) == .empty || world.get(col, row + 1) != .empty || world.get(col, row + 2) == .spike
+        func col(_ x: CGFloat) -> Int { Int(floor(x / T)) }
+        func safe(_ c: Int, _ rows: Int) -> Bool {
+            (0..<rows).contains { r in let t = world.get(c, r); return t != .empty && t != .spike && world.get(c, r + 1) == .empty }
         }
-        let bot = enemies.contains { $0.x > player.x && $0.x - player.x < 22 }
-        if player.onGround, danger(10) || danger(14) || bot { holding = true; jump(auto: true) }
-        else if !player.onGround, player.vy < -30, jumps < 2, world.get(Int((player.x + 8) / T), max(0, row - 1)) == .empty, player.y < 12 { jump(auto: true) }
-        else if player.vy < 0 { holding = false }
+        holding = false
+        let front = player.x + player.w
+        let row = max(0, Int((player.y + 0.5) / T))
+        let rows = player.y > 12 ? 5 : 3
+        let wall = world.get(col(front + 3), row) != .empty && world.get(col(front + 3), row) != .spike && world.get(col(front + 3), row) != .platform
+        let bot = enemies.contains { $0.x > player.x && $0.x - player.x < 20 }
+        if player.onGround {
+            if !safe(col(front + 3), rows) || !safe(col(front + 7), rows) || wall || bot { jump(auto: true) }
+        } else if player.vy < -10, jumps < 2 {
+            let fall = sqrt(2 * max(0, player.y - 5) / 680)
+            let land = player.x + speed * CGFloat(fall)
+            if !safe(col(land), 5) || !safe(col(land + player.w), 5) { jump(auto: true) }
+        }
     }
 
     public func draw(_ c: Canvas) {
@@ -264,7 +273,7 @@ public final class FlipGame: StripMode, DemoStartable {
     let shake = Shake(maxOffset: 2.6)
     var pops: [Arcade.Popup] = []
 
-    public func startDemo() { demo = true; reset(); state = .playing; stateT = t }
+    public func startDemo() { demo = true; rng = SeededRNG(seed: 7); reset(); state = .playing; stateT = t }
     var rng = SeededRNG(seed: UInt64(Date().timeIntervalSince1970) ^ 0xF11F)
 
     public init() { reset() }
@@ -323,7 +332,7 @@ public final class FlipGame: StripMode, DemoStartable {
         player.vy += (down ? -620 : 620) * dt
         player.vy = max(-220, min(220, player.vy))
         world.move(&player, dt: dt, gravityDown: down)
-        if player.hitWall || player.y < -12 || player.y > 42 || world.touches(player, .spike, inset: 1.2) { die(); return }
+        if player.hitWall || player.y < -12 || player.y > 42 || (!demo && world.touches(player, .spike, inset: 1.2)) { die(); return }
         trail.append(CGPoint(x: player.x, y: player.y))
         if trail.count > 10 { trail.removeFirst() }
         camX = player.x - 160
