@@ -45,6 +45,12 @@ jobs:
           ref: ${{ env.TAG }}
           fetch-depth: 0 # build number = commit count, release notes = commits since last tag
 
+      - name: Use the newest Xcode (default 16.4 / Swift 6.1 is too old)
+        run: |
+          XC="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)"
+          [ -n "$XC" ] && sudo xcode-select -s "$XC/Contents/Developer"
+          swift --version
+
       - name: Check the Sparkle key is configured
         run: |
           if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
