@@ -124,10 +124,14 @@ public final class StripView: NSView {
         case 36: return .action      // return
         default:
             switch e.charactersIgnoringModifiers?.lowercased() {
-            case "a": return .left
-            case "d": return .right
-            case "w": return .jump
-            case "s": return .down
+            case "a": return .p1Left
+            case "d": return .p1Right
+            case "w": return .p1Up
+            case "s": return .p1Down
+            case "f": return .p1Fire
+            case "g": return .p1Special
+            case "/": return .p2Fire
+            case ".": return .p2Special
             default: return nil
             }
         }

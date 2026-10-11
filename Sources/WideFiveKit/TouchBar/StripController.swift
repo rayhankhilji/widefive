@@ -205,9 +205,9 @@ public final class StripController {
 
     public func keyDown(_ k: GameKey) {
         if paused { paused = false; return }
-        current.keyDown(k)
+        current.keyDown(current.isTwoPlayer ? k : k.collapsed)
     }
-    public func keyUp(_ k: GameKey) { current.keyUp(k) }
+    public func keyUp(_ k: GameKey) { current.keyUp(current.isTwoPlayer ? k : k.collapsed) }
 
     // MARK: Render
 

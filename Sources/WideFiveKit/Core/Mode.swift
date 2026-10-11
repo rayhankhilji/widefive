@@ -39,6 +39,8 @@ public protocol StripMode: AnyObject {
     var showsExitButton: Bool { get }
     /// Games get the key-lock button, P-to-pause and keyboard capture.
     var isGame: Bool { get }
+    /// Two-player games get separate WASD / arrow keys instead of collapsed ones.
+    var isTwoPlayer: Bool { get }
 
     func activate(_ ctx: ModeContext)
     func deactivate()
@@ -52,7 +54,24 @@ public protocol StripMode: AnyObject {
     func keyUp(_ key: GameKey)
 }
 
-public enum GameKey { case left, right, up, down, jump, run, action }
+public enum GameKey {
+    case left, right, up, down, jump, run, action
+    /// Player-1 keys (WASD + F/G). Arrows and / . are player 2 in two-player games.
+    case p1Left, p1Right, p1Up, p1Down, p1Fire, p1Special, p2Fire, p2Special
+
+    /// Single-player games see WASD as arrows.
+    public var collapsed: GameKey {
+        switch self {
+        case .p1Left: return .left
+        case .p1Right: return .right
+        case .p1Up: return .up
+        case .p1Down: return .down
+        case .p1Fire, .p2Fire: return .run
+        case .p1Special, .p2Special: return .action
+        default: return self
+        }
+    }
+}
 
 public extension StripMode {
     var isAnimated: Bool { false }
@@ -60,6 +79,7 @@ public extension StripMode {
     var allowsGestures: Bool { true }
     var showsExitButton: Bool { false }
     var isGame: Bool { false }
+    var isTwoPlayer: Bool { false }
     func deactivate() {}
     func update(dt: Double) {}
     func touchBegan(_ t: StripTouch) {}
@@ -88,6 +108,8 @@ public final class ModeRegistry {
         r.register(BreakoutGame())
         r.register(FlappyGame())
         r.register(ShooterGame())
+        r.register(RaceGame())
+        r.register(DuelGame())
         r.register(ControlMode())
         r.register(PianoMode())
         r.register(VisualizerMode())

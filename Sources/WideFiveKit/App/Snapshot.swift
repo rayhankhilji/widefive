@@ -4,12 +4,25 @@ import AppKit
 public enum Snapshot {
     public static func render(mode: String, seconds: Double = 1.5, width: CGFloat = 1085, scale: CGFloat = 2,
                               script: ((StripController, Double) -> Void)? = nil) -> Data? {
+        let parts = mode.split(separator: ":").map(String.init)
+        let modeId = parts[0]
+        let demo = parts.count > 1 && parts[1] == "demo"
         var cfg = Config.default
-        cfg.startMode = mode
+        cfg.startMode = modeId
         let controller = StripController(config: cfg)
         controller.frontmostChanged(bundleId: "com.microsoft.VSCode", name: "Code")
-        controller.switchTo(mode)
+        controller.switchTo(modeId)
         Stats.shared.sample()
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(width * scale), pixelsHigh: Int(30 * scale), bitsPerSample: 8,
+                                         samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+              let gc = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = gc
+        gc.cgContext.scaleBy(x: scale, y: scale)
+        let size = CGSize(width: width, height: 30)
+        // One throwaway frame so modes learn the real strip width before the demo starts.
+        controller.render(gc.cgContext, size: size)
+        if demo { (controller.current as? DemoStartable)?.startDemo() }
         let dt = 1.0 / 60
         var t = 0.0
         while t < seconds {
@@ -18,13 +31,8 @@ public enum Snapshot {
             t += dt
             if Int(t * 60) % 60 == 0 { Stats.shared.sample() }
         }
-        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(width * scale), pixelsHigh: Int(30 * scale), bitsPerSample: 8,
-                                         samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
-              let gc = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = gc
-        gc.cgContext.scaleBy(x: scale, y: scale)
-        controller.render(gc.cgContext, size: CGSize(width: width, height: 30))
+        gc.cgContext.clear(CGRect(origin: .zero, size: size))
+        controller.render(gc.cgContext, size: size)
         NSGraphicsContext.restoreGraphicsState()
         return rep.representation(using: .png, properties: [:])
     }

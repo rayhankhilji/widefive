@@ -25,6 +25,16 @@ public final class Canvas {
 
     public func clear(_ color: NSColor = .black) { fill(bounds, color) }
 
+    public func polygon(_ pts: [CGPoint], _ color: NSColor) {
+        guard pts.count > 2 else { return }
+        cg.setFillColor(color.cgColor)
+        cg.beginPath()
+        cg.move(to: pts[0])
+        for p in pts.dropFirst() { cg.addLine(to: p) }
+        cg.closePath()
+        cg.fillPath()
+    }
+
     public func roundRect(_ rect: CGRect, radius: CGFloat = 6, fill color: NSColor, stroke: NSColor? = nil, lineWidth: CGFloat = 1) {
         let path = CGPath(roundedRect: rect, cornerWidth: min(radius, rect.width / 2), cornerHeight: min(radius, rect.height / 2), transform: nil)
         cg.addPath(path)

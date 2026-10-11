@@ -60,6 +60,8 @@ modes, themes, "Edit config", "Reload Touch Bar", "Start at login" and Quit.
 | `breakout` | **Breakout** with two rows of bricks |
 | `flappy` | **Flap**: tap to flap through the gaps |
 | `shooter` | **Starstrip**: side-scrolling shooter, pad = up/down, A = fire |
+| `race` | **Strip Racer**: pseudo-3D arcade racer. Pick vs bots or vs a friend (split screen), a track (Neon City / Coast / Alpine), then each player picks a car (Lamborghini, F1, Land Rover, G-Wagon, BMW M5, Audi R8, LaFerrari) and a view (chase / cockpit / hood). 3 laps, nitro, AI cars. Sound is off every time you open it; turn it on in the menu |
+| `duel` | **Strip Duel**: two-player arena shooter across the whole bar. Blaster / Tank / Ninja, each with a charge-up special. Best of 3 vs a bot or a friend |
 | `control` | control bar: volume, mute, display brightness, keyboard backlight, media, dark mode, caffeine, screenshot, Mission Control, lock, display sleep |
 | `timer` | stopwatch with laps + 1/3/5/10/25 min countdowns |
 | `calc` | calculator with every key visible at once |
@@ -77,7 +79,10 @@ modes, themes, "Edit config", "Reload Touch Bar", "Start at login" and Quit.
 Every game has a ⌨ button next to the ✕. Tap it (or press ⌃⌥⌘K) to **lock the keyboard to the game**:
 arrows / WASD, space, Z, X and Return go to the game instead of your Mac, and the on-bar game buttons
 disappear. Tap it again (or press Esc) to give the keys back. ⌘/⌃/⌥ shortcuts are never captured.
-**P pauses** any game. Needs Accessibility permission. Without the lock, the keys also work when the
+**P pauses** any game.
+
+Two-player games: **P1** = WASD, F (shoot / nitro), G (special), S (shield / brake).
+**P2** = arrows, / (shoot / nitro), . (special), ↓ (shield / brake). Without the lock, each side of the bar gets its own touch pad. Needs Accessibility permission. Without the lock, the keys also work when the
 preview window is focused.
 
 ## Gestures (home mode)

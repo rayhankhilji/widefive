@@ -19,7 +19,9 @@ public final class KeyCapture {
 
     private static let keyMap: [Int64: GameKey] = [
         123: .left, 124: .right, 126: .up, 125: .down,
-        0: .left, 2: .right, 13: .up, 1: .down,     // a / d / w / s
+        0: .p1Left, 2: .p1Right, 13: .p1Up, 1: .p1Down,  // a / d / w / s
+        3: .p1Fire, 5: .p1Special,                       // f / g
+        44: .p2Fire, 47: .p2Special,                     // / and .
         49: .jump,                                   // space
         6: .run, 7: .action,                         // z / x
         36: .action,                                 // return
