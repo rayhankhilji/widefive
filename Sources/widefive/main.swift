@@ -19,6 +19,15 @@ if let i = args.firstIndex(of: "--snapshot"), args.count > i + 2 {
     exit(0)
 }
 
+if let i = args.firstIndex(of: "--frames"), args.count > i + 3 {
+    _ = NSApplication.shared
+    let num: (Int, Double) -> Double = { k, d in args.count > i + k ? Double(args[i + k]) ?? d : d }
+    let n = Snapshot.frames(mode: args[i + 1], dir: args[i + 2], seconds: num(3, 3),
+                            width: CGFloat(num(4, Double(Hardware.shared.touchBarWidth))), fps: num(5, 30), skip: num(6, 0))
+    print("wrote \(n) frames to \(args[i + 2])")
+    exit(0)
+}
+
 if args.contains("--print-default-config") {
     print(String(data: try Config.default.encoded(), encoding: .utf8)!)
     exit(0)

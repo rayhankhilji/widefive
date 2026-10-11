@@ -2,8 +2,25 @@ import AppKit
 
 /// Headless renderer: `widefive --snapshot <mode> out.png [seconds]` renders a mode at native Touch Bar resolution (2170×60).
 public enum Snapshot {
+    /// Writes a PNG sequence (frame-0000.png …) for GIFs/videos: `widefive --frames <mode> <dir> <seconds> [width] [fps] [skip]`.
+    @discardableResult
+    public static func frames(mode: String, dir: String, seconds: Double, width: CGFloat = 1085, fps: Double = 30,
+                              skip: Double = 0, scale: CGFloat = 2) -> Int {
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        var n = 0
+        var next = skip
+        _ = render(mode: mode, seconds: skip + seconds, width: width, scale: scale, frame: { t, png in
+            guard t >= next else { return }
+            next += 1 / fps
+            try? png().write(to: URL(fileURLWithPath: dir).appendingPathComponent(String(format: "frame-%04d.png", n)))
+            n += 1
+        })
+        return n
+    }
+
     public static func render(mode: String, seconds: Double = 1.5, width: CGFloat = 1085, scale: CGFloat = 2,
-                              script: ((StripController, Double) -> Void)? = nil) -> Data? {
+                              script: ((StripController, Double) -> Void)? = nil,
+                              frame: ((Double, () -> Data) -> Void)? = nil) -> Data? {
         let themed = mode.split(separator: "@", maxSplits: 1).map(String.init)
         let parts = themed[0].split(separator: ":").map(String.init)
         let modeId = parts[0]
@@ -33,6 +50,13 @@ public enum Snapshot {
             controller.current.update(dt: dt)
             t += dt
             if Int(t * 60) % 60 == 0 { Stats.shared.sample() }
+            if let frame {
+                frame(t) {
+                    gc.cgContext.clear(CGRect(origin: .zero, size: size))
+                    controller.render(gc.cgContext, size: size)
+                    return rep.representation(using: .png, properties: [:]) ?? Data()
+                }
+            }
         }
         gc.cgContext.clear(CGRect(origin: .zero, size: size))
         controller.render(gc.cgContext, size: size)
