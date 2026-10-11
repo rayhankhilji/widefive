@@ -32,7 +32,7 @@ public final class LauncherMode: StripMode {
     }
 
     private var sections: [(String, [StripMode])] {
-        let list = registry?.modes.filter { $0.id != id } ?? []
+        let list = registry?.modes.filter { $0.id != id && !($0 is AdjustMode) } ?? []
         return [("Tools", list.filter { !$0.isGame }), ("Games", list.filter { $0.isGame })].filter { !$0.1.isEmpty }
     }
 

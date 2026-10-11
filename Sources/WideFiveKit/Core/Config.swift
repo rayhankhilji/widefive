@@ -27,7 +27,7 @@ public struct Action: Codable, Equatable {
 }
 
 public struct Item: Codable, Equatable {
-    /// button | widget | spacer | separator | slider
+    /// button | widget | spacer | separator | slider | quick (brightness / keyboard / volume, tap → full slider)
     public var kind: String
     public var title: String?
     /// SF Symbol name or emoji
@@ -40,14 +40,21 @@ public struct Item: Codable, Equatable {
     /// widget name: clock, date, cpu, ram, battery, net, temp, fan, nowplaying, weather, pomodoro, disk, uptime, app
     /// slider target: volume, brightness
     public var name: String?
+    /// Full-colour logo instead of the SF Symbol: "app:<bundle id>" or "web:<domain>", fallbacks joined with "|".
+    public var image: String?
 
-    enum CodingKeys: String, CodingKey { case kind = "type", title, icon, color, width, action, longPress, name }
+    enum CodingKeys: String, CodingKey { case kind = "type", title, icon, color, width, action, longPress, name, image }
 
     public init(kind: String, title: String? = nil, icon: String? = nil, color: String? = nil, width: Double? = nil,
-                action: Action? = nil, longPress: Action? = nil, name: String? = nil) {
+                action: Action? = nil, longPress: Action? = nil, name: String? = nil, image: String? = nil) {
         self.kind = kind; self.title = title; self.icon = icon; self.color = color; self.width = width
-        self.action = action; self.longPress = longPress; self.name = name
+        self.action = action; self.longPress = longPress; self.name = name; self.image = image
     }
+
+    public static func logo(_ image: String, fallback icon: String, color: String, _ action: Action) -> Item {
+        Item(kind: "button", icon: icon, color: color, width: 44, action: action, image: image)
+    }
+    public static func quick(_ name: String) -> Item { Item(kind: "quick", width: 44, name: name) }
 
     public static func button(_ title: String?, _ icon: String?, _ action: Action, color: String? = nil, longPress: Action? = nil) -> Item {
         Item(kind: "button", title: title, icon: icon, color: color, action: action, longPress: longPress)
@@ -125,7 +132,7 @@ public struct Config: Codable, Equatable {
     }
 
     public static var `default`: Config { DefaultConfig.make() }
-    public static let currentVersion = 2
+    public static let currentVersion = 3
 
     /// v1 → v2: adds the Controls button next to the launcher and turns off mode-flicking (it fought with scrolling).
     public static func migrate(_ old: Config) -> Config {
@@ -137,6 +144,11 @@ public struct Config: Codable, Equatable {
             }
             c.gestures.flickModes = false
             if !c.flickOrder.contains("control") { c.flickOrder.insert("control", at: min(1, c.flickOrder.count)) }
+        }
+        // v3: new home bar (pinned app logos, screenshot, Apple-style quick controls). Old file is backed up on load.
+        if c.version < 3 {
+            let d = DefaultConfig.make()
+            c.leading = d.leading; c.trailing = d.trailing; c.defaultItems = d.defaultItems; c.apps = d.apps
         }
         c.version = currentVersion
         return c
@@ -177,6 +189,7 @@ public final class ConfigStore {
             config = try Config.decode(data)
             lastError = nil
             if config.version < Config.currentVersion {
+                try? data.write(to: Self.directory.appendingPathComponent("config.v\(config.version).backup.json"))
                 config = Config.migrate(config)
                 if let out = try? config.encoded() { try? out.write(to: Self.file) }
             }

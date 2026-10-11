@@ -111,6 +111,7 @@ public final class ModeRegistry {
         r.register(RaceGame())
         r.register(DuelGame())
         r.register(ControlMode())
+        for k in ["brightness", "keyboard", "volume"] { r.register(AdjustMode(k)) }
         r.register(PianoMode())
         r.register(VisualizerMode())
         r.register(AmbientMode())

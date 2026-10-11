@@ -84,9 +84,10 @@ final class MigrationTests: XCTestCase {
         XCTAssertEqual(v1.version, 1)
         let v2 = Config.migrate(v1)
         XCTAssertEqual(v2.version, Config.currentVersion)
-        XCTAssertEqual(v2.leading.map { $0.action?.mode }, ["launcher", "control"])
+        XCTAssertEqual(v2.leading.prefix(2).map { $0.action?.mode }, ["launcher", "control"])
+        XCTAssertTrue(v2.trailing.contains { $0.kind == "quick" })
         XCTAssertFalse(v2.gestures.flickModes)
-        XCTAssertEqual(Config.migrate(v2).leading.count, 2)
+        XCTAssertEqual(Config.migrate(v2).leading.count, v2.leading.count)
     }
 
     func testDefaultConfigIsCurrent() {

@@ -27,6 +27,8 @@ public final class HomeMode: StripMode {
     private var scrolling: Bool { scroller.dragging }
     private let presses = Presses<Int>()
     private var sliders: [String: Smoothed] = [:]
+    private var quickStart: Float = 0
+    private var quickDragged = false
     private var middleRange: (CGFloat, CGFloat) = (0, 0)
     private var contentWidth: CGFloat = 0
     private var widgetCache: [String: Widget] = [:]
@@ -148,7 +150,16 @@ public final class HomeMode: StripMode {
         case "separator": c.roundRect(CGRect(x: r.midX - 0.5, y: 8, width: 1, height: 14), radius: 0.5, fill: c.theme.dim.withAlphaComponent(0.3))
         case "spacer": break
         case "slider": drawSlider(c, s, r, pressed: p)
+        case "quick": drawQuick(c, s, r, pressed: p)
         default:
+            if let spec = s.item.image, let logo = LogoCache.shared.logo(spec) {
+                c.button(r, style: .plain, pressed: p) { _ in
+                    let side = min(r.height - (logo.isAppIcon ? 1 : 7), r.width - 8)
+                    let rect = CGRect(x: r.midX - side / 2, y: r.midY - side / 2, width: side, height: side)
+                    c.image(logo.image, in: rect, radius: logo.isAppIcon ? 0 : side * 0.24)
+                }
+                return
+            }
             let style: ButtonStyle = s.item.color.map { .tinted(c.theme.tint(NSColor(hex: $0))) } ?? .plain
             let title = s.item.title ?? ""
             c.button(r, style: style, pressed: p) { fg in
@@ -167,6 +178,21 @@ public final class HomeMode: StripMode {
                     c.text(title, x: r.midX, size: emoji ? 16 : 12, color: c.theme.text, weight: .medium, align: .center, maxWidth: r.width - 8)
                 }
             }
+        }
+    }
+
+    private func drawQuick(_ c: Canvas, _ s: Slot, _ r: CGRect, pressed p: CGFloat) {
+        let name = s.item.name ?? "volume"
+        let key = "quick." + name
+        let target = Double(QuickControl.value(name))
+        if sliders[key] == nil { sliders[key] = Smoothed(target, speed: 24) }
+        sliders[key]?.target = target
+        let v = CGFloat(max(0, min(1, sliders[key]?.value ?? target)))
+        c.button(r, style: .plain, pressed: p) { fg in
+            c.symbol(QuickControl.icon(name, v: Float(v)), in: CGRect(x: r.minX, y: r.minY + 2.5, width: r.width, height: r.height - 2.5), color: fg, pointSize: Metrics.icon)
+            let track = CGRect(x: r.minX + 10, y: r.minY + 3.5, width: r.width - 20, height: 2)
+            c.roundRect(track, radius: 1, fill: c.theme.dim.withAlphaComponent(0.25))
+            c.roundRect(CGRect(x: track.minX, y: track.minY, width: max(2, track.width * v), height: 2), radius: 1, fill: c.theme.accent)
         }
     }
 
@@ -213,6 +239,7 @@ public final class HomeMode: StripMode {
         guard let i = pressed, let ctx else { return }
         presses.press(i)
         if slots[i].item.kind == "slider" { setSlider(slots[i], x: t.x); return }
+        if slots[i].item.kind == "quick" { quickStart = QuickControl.value(slots[i].item.name ?? "volume"); quickDragged = false; return }
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.pressed == i, !self.scrolling else { return }
             let s = self.slots[i]
@@ -227,6 +254,11 @@ public final class HomeMode: StripMode {
     public func touchMoved(_ t: StripTouch) {
         guard let start = pressTouch else { return }
         if let i = pressed, slots[i].item.kind == "slider" { setSlider(slots[i], x: t.x); return }
+        // Apple-style press-and-slide on a quick control adjusts it without opening the full slider.
+        if let i = pressed, slots[i].item.kind == "quick" {
+            if abs(t.dx) > 6 { quickDragged = true; QuickControl.set(slots[i].item.name ?? "volume", quickStart + Float(t.dx / 220)) }
+            return
+        }
         let inMiddle = start.startX >= middleRange.0 && start.startX <= middleRange.1
         if inMiddle, scroller.move(t), pressed != nil {
             pressed = nil
@@ -244,6 +276,10 @@ public final class HomeMode: StripMode {
         guard let i = pressed, !longPressFired, !wasScrolling, let ctx else { return }
         let s = slots[i]
         if s.item.kind == "slider" { return }
+        if s.item.kind == "quick" {
+            if !quickDragged { ctx.switchMode("adjust.\(s.item.name ?? "volume")") }
+            return
+        }
         if let w = s.widget {
             if abs(t.dx) > 30 { w.swipe(t.dx, ctx: ctx) } else if s.frame.contains(CGPoint(x: t.x, y: 15)) || abs(t.dx) < 12 { w.tap(ctx) }
         } else if let a = s.item.action, abs(t.dx) < 40 {
