@@ -142,6 +142,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.rebuildMenu()
         }
         Updater.shared.start()
+        rebuildMenu()
     }
 
     @objc private func checkForUpdates() { Updater.shared.checkForUpdates() }
