@@ -41,6 +41,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusItem()
         observeFrontmostApp()
         registerHotKeys()
+        setupUpdater()
         if let e = store.lastError { controller.toast("⚠️ \(e)") }
         if openPreviewOnLaunch || !TouchBarPresenter.isSupported { showPreview() }
     }
@@ -113,6 +114,39 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // MARK: Updates
+
+    private func setupUpdater() {
+        Updater.shared.onUpdateFound = { [weak self] version in
+            self?.controller.toast("⬆ widefive \(version) is ready — menu → Install Update")
+            self?.rebuildMenu()
+        }
+        Updater.shared.start()
+    }
+
+    @objc private func checkForUpdates() { Updater.shared.checkForUpdates() }
+
+    @objc private func toggleAutoUpdateChecks() {
+        Updater.shared.automaticallyChecks.toggle()
+        rebuildMenu()
+    }
+
+    private func addUpdateItems(to menu: NSMenu) {
+        let updater = Updater.shared
+        guard updater.isEnabled else {
+            let off = NSMenuItem(title: "Check for Updates…", action: nil, keyEquivalent: "")
+            off.toolTip = "Auto-update is off: \(updater.disabledReason ?? "unavailable")"
+            off.isEnabled = false
+            menu.addItem(off)
+            return
+        }
+        let title = updater.pendingVersion.map { "Install Update \($0)…" } ?? "Check for Updates…"
+        let check = item(title, #selector(checkForUpdates))
+        check.image = updater.pendingVersion == nil ? nil : NSImage(systemSymbolName: "arrow.down.circle.fill", accessibilityDescription: nil)
+        menu.addItem(check)
+        menu.addItem(item("Automatically Check for Updates", #selector(toggleAutoUpdateChecks), state: updater.automaticallyChecks))
+    }
+
     // MARK: Status menu
 
     private func setupStatusItem() {
@@ -132,7 +166,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     func rebuildMenu() {
         guard let statusItem else { return }
         let menu = NSMenu()
-        let header = NSMenuItem(title: "widefive — \(controller.current.title)", action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: "widefive \(Updater.versionDescription) — \(controller.current.title)", action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
         let hw = NSMenuItem(title: Hardware.shared.summary, action: nil, keyEquivalent: "")
@@ -175,6 +209,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if #available(macOS 13.0, *) {
             menu.addItem(item("Launch at Login", #selector(toggleLogin), state: SMAppService.mainApp.status == .enabled))
         }
+        menu.addItem(.separator())
+        addUpdateItems(to: menu)
         menu.addItem(.separator())
         menu.addItem(item("Quit widefive", #selector(quit), key: "q"))
         statusItem.menu = menu

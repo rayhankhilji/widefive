@@ -13,27 +13,63 @@ your stock Touch Bar comes back.
 ![launcher](docs/shots/launcher.png)
 ![control](docs/shots/control.png)
 
-## Run it
+## Install
+
+> **First launch (important):** widefive isn't notarized by Apple, so macOS blocks the first open.
+> **Right-click widefive.app → Open → Open**. On macOS 15+ (or if there's no Open button):
+> try to open it once, then **System Settings → Privacy & Security → scroll down → "Open Anyway"**.
+> You only do this once; updates keep working afterwards.
+
+| Option | How |
+| --- | --- |
+| **DMG** (recommended) | Download `widefive-x.y.z.dmg` from [Releases](https://github.com/rayhankhilji/widefive/releases/latest), open it, drag widefive onto Applications |
+| **Zip** | Download `widefive-x.y.z.zip`, unzip, move `widefive.app` to `/Applications` |
+| **Homebrew** | `brew install --cask rayhankhilji/tap/widefive` |
+| **From source** | see below |
+
+If macOS says the app "is damaged" (a quarantine flag on unsigned downloads), run once:
+`xattr -dr com.apple.quarantine /Applications/widefive.app`.
+
+widefive runs on macOS 12+ (Apple Silicon and Intel, universal binary). It lives in the menu bar
+(no Dock icon); the menu shows the version at the top.
+
+### Permissions
+
+On first use macOS will ask for these; grant them in System Settings → Privacy & Security, then relaunch:
+
+| Permission | Why |
+| --- | --- |
+| Accessibility | sending key chords / typing text from buttons, locking game keys to the bar |
+| Automation | AppleScript actions, Spotify/Music now-playing fallback |
+| Microphone | the visualizer mode (only while it's open) |
+
+The menu-bar icon has modes, themes, "Edit config", "Reload Touch Bar", "Launch at Login",
+"Check for Updates…" and Quit.
+
+### From source
 
 ```bash
 git clone https://github.com/rayhankhilji/widefive && cd widefive
 swift build -c release
 .build/release/widefive            # menu-bar app, takes over the Touch Bar
 .build/release/widefive --preview  # also opens an on-screen preview strip (mouse = finger)
+Scripts/build-app.sh --native      # or: build your own build/widefive.app
 ```
 
-Requires macOS 12+ and Xcode or the Command Line Tools. On first launch macOS will ask for:
+Requires Xcode or the Command Line Tools. Auto-update is off when running from source.
 
-| Permission | Why |
+## Updating
+
+| Installed via | Update |
 | --- | --- |
-| Accessibility | sending key chords / typing text from buttons |
-| Automation | AppleScript actions, Spotify/Music now-playing fallback |
-| Microphone | the visualizer mode (only when you open it) |
+| DMG / zip | automatic: widefive checks once a day (Sparkle). When an update is found you get a Touch Bar toast and **Install Update x.y.z…** in the menu. Or use **Check for Updates…** any time. Turn background checks off with **Automatically Check for Updates** |
+| Homebrew | auto-update works too; or `brew upgrade --cask widefive` |
+| Source | `git pull && swift build -c release` |
 
-Grant them in System Settings → Privacy & Security, then relaunch. The menu-bar icon has
-modes, themes, "Edit config", "Reload Touch Bar", "Start at login" and Quit.
+Updates are verified with an EdDSA signature (Sparkle) before they're installed, so they're safe without
+an Apple Developer ID. The feed is `https://github.com/rayhankhilji/widefive/releases/latest/download/appcast.xml`.
 
-### Global hotkeys
+## Global hotkeys
 
 | Keys | Action |
 | --- | --- |
@@ -172,6 +208,52 @@ widefive has no Dock icon or window. Turn on **Hide Menu-Bar Icon** to remove th
 swift test
 swift run widefive --snapshot plumber shot.png 2   # render any mode headlessly to a PNG
 ```
+
+## Releasing
+
+Everything is in `Scripts/` and runs on any Mac; the GitHub Actions workflow just calls it.
+
+**One-time setup** (the update signing key):
+
+```bash
+Scripts/setup-sparkle-keys.sh   # makes an EdDSA key in your login keychain,
+                                # writes Resources/sparkle-public-key.txt, uploads SPARKLE_PRIVATE_KEY via gh
+git add Resources/sparkle-public-key.txt && git commit -m "Add Sparkle public key" && git push
+```
+
+The private key never goes in the repo. Back it up (`.build/artifacts/sparkle/Sparkle/bin/generate_keys -x key.txt`
+→ password manager, then delete the file): if it's lost, installed copies can't verify updates anymore.
+If `gh` isn't logged in, add the secret by hand under Settings → Secrets and variables → Actions.
+
+**Each release:**
+
+```bash
+echo 0.2.0 > VERSION && git commit -am "v0.2.0"
+git tag v0.2.0 && git push origin main v0.2.0   # .github/workflows/release.yml builds + publishes
+# or, without Actions:
+Scripts/release.sh v0.2.0             # dry run → dist/ (app zip, dmg, appcast.xml, widefive.rb, SHA256SUMS.txt)
+Scripts/release.sh v0.2.0 --publish   # same, then creates the GitHub release with gh
+```
+
+| Script | Does |
+| --- | --- |
+| `build-app.sh [--native]` | universal release build → `build/widefive.app` (Info.plist, icon, Sparkle.framework, signed) |
+| `make-dmg.sh` | `dist/widefive-x.y.z.dmg` (drag-to-Applications window) + `.zip` |
+| `appcast.sh vX.Y.Z` | `dist/appcast.xml`, previous releases kept, EdDSA-signed |
+| `notarize.sh <path>` | notarize + staple, skipped without Apple credentials |
+| `make-icon.sh` | regenerate `Resources/AppIcon.icns` from `Scripts/art.swift` |
+
+Version = the tag (or `VERSION`); build number = commit count, so it always increases.
+
+**Signing.** By default builds are ad-hoc signed (`codesign -s -`), which needs no Apple account. To ship
+signed + notarized builds later, add these Actions secrets: `APPLE_DEVELOPER_ID_CERT` (base64 .p12 of a
+Developer ID Application certificate), `APPLE_DEVELOPER_ID_CERT_PASSWORD`, `APPLE_ID`, `APPLE_TEAM_ID`,
+`APPLE_APP_PASSWORD` (app-specific password). Locally, a Developer ID in your keychain is picked up
+automatically (override with `CODESIGN_IDENTITY`), plus the three `APPLE_*` env vars for notarization.
+
+**Homebrew tap.** Create the repo `rayhankhilji/homebrew-tap` once, then after each release copy
+`dist/widefive.rb` (the [Casks/widefive.rb](Casks/widefive.rb) template with the version + sha256 filled in)
+to `Casks/widefive.rb` in the tap and push. Users install with `brew install --cask rayhankhilji/tap/widefive`.
 
 ## Caveats
 

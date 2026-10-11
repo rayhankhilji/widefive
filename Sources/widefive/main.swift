@@ -3,6 +3,11 @@ import WideFiveKit
 
 let args = CommandLine.arguments
 
+if args.contains("--version") {
+    print("widefive \(Updater.versionDescription)")
+    exit(0)
+}
+
 if let i = args.firstIndex(of: "--snapshot"), args.count > i + 2 {
     _ = NSApplication.shared
     let mode = args[i + 1], out = args[i + 2]
