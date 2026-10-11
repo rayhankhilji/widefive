@@ -24,6 +24,8 @@ public final class VisualizerMode: StripMode {
     public init() {}
 
     public func activate(_ ctx: ModeContext) {
+        // Without a usage string (e.g. `swift run`/headless snapshots) TCC aborts the process; fall back to the idle animation.
+        guard Bundle.main.object(forInfoDictionaryKey: "NSMicrophoneUsageDescription") != nil else { return }
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized: startEngine()
         case .notDetermined:
@@ -94,34 +96,61 @@ public final class VisualizerMode: StripMode {
 
     public func draw(_ c: Canvas) {
         lock.lock(); let b = bands, p = peaks; lock.unlock()
-        let x0 = StripController.exitWidth + 4
-        let w = (c.width - x0) / CGFloat(b.count)
+        let theme = c.theme
+        let x0 = Metrics.contentX
+        let w = (c.width - x0 - 2) / CGFloat(b.count)
         let h = c.height
-        for i in b.indices {
+        let shift = CGFloat(sin(c.time * 0.3) * 0.5 + 0.5) * 0.25
+        func col(_ i: Int) -> NSColor {
+            let t = CGFloat(i) / CGFloat(b.count - 1)
+            return t < 0.5 ? theme.accent.mix(theme.accent2, min(1, t * 2 + shift)) : theme.accent2.mix(theme.good, min(1, (t - 0.5) * 2 * (1 - shift)))
+        }
+        let rad = min(1.5, (w - 1.5) / 2)
+        if style == 3 {
+            // Smooth oscilloscope-style wave with a glow.
+            let path = CGMutablePath()
+            for i in b.indices {
+                let v = CGFloat(b[i])
+                let p = CGPoint(x: x0 + (CGFloat(i) + 0.5) * w, y: h / 2 + (v - 0.25) * h * 0.9 * sin(CGFloat(i) * 0.6 + CGFloat(c.time) * 4))
+                if i == 0 { path.move(to: p) } else { path.addLine(to: p) }
+            }
+            c.glowing(theme.accent, blur: 8, strength: 1) {
+                c.cg.saveGState()
+                c.cg.addPath(path)
+                c.cg.setStrokeColor(theme.accent.cgColor)
+                c.cg.setLineWidth(1.6)
+                c.cg.setLineJoin(.round)
+                c.cg.strokePath()
+                c.cg.restoreGState()
+            }
+        }
+        for i in b.indices where style != 3 {
             let v = CGFloat(b[i])
             let x = x0 + CGFloat(i) * w
-            let col = NSColor.hsb(CGFloat(i) / CGFloat(b.count) * 0.8 + CGFloat(c.time * 0.05), 0.9, 1)
+            let cl = col(i)
             switch style {
             case 0:
-                c.gradient(CGRect(x: x, y: 0, width: w - 1, height: max(1, v * h)), [col, col.withAlphaComponent(0.35)])
-                c.fill(CGRect(x: x, y: CGFloat(p[i]) * h - 1, width: w - 1, height: 1), .white)
+                let bh = max(1.5, v * (h - 3))
+                c.gradient(CGRect(x: x, y: 0, width: w - 1.5, height: bh), [cl, cl.withAlphaComponent(0.25)], radius: rad)
+                c.roundRect(CGRect(x: x, y: min(h - 1.5, CGFloat(p[i]) * (h - 3) + 1), width: w - 1.5, height: 1.5), radius: 0.75, fill: theme.text.withAlphaComponent(0.85))
             case 1:
                 let bh = max(1, v * h / 2)
-                c.fill(CGRect(x: x, y: h / 2 - bh, width: w - 1, height: bh * 2), col)
-            case 2:
-                let dots = Int(v * 6)
-                for d in 0..<dots { c.circle(center: CGPoint(x: x + w / 2, y: 2.5 + CGFloat(d) * 5), radius: min(2, w / 2.2), col) }
+                c.gradient(CGRect(x: x, y: h / 2 - bh, width: w - 1.5, height: bh * 2), [cl.withAlphaComponent(0.4), cl, cl.withAlphaComponent(0.4)], radius: rad)
             default:
-                if i > 0 {
-                    let prev = CGFloat(b[i - 1])
-                    c.line(from: CGPoint(x: x - w / 2, y: h / 2 + (prev - 0.3) * h * sin(CGFloat(i - 1) * 0.6 + CGFloat(c.time) * 4)),
-                           to: CGPoint(x: x + w / 2, y: h / 2 + (v - 0.3) * h * sin(CGFloat(i) * 0.6 + CGFloat(c.time) * 4)), col, width: 1.5)
+                let dots = Int(v * 6)
+                for d in 0..<dots {
+                    c.circle(center: CGPoint(x: x + w / 2, y: 2.5 + CGFloat(d) * 5), radius: min(2, w / 2.4), cl.withAlphaComponent(0.5 + 0.5 * CGFloat(d) / 6))
                 }
             }
         }
+        c.caption(styles[style], x: c.width - 8, y: 20, color: theme.text.withAlphaComponent(0.45), align: .right)
         if denied {
-            c.roundRect(CGRect(x: c.width / 2 - 190, y: 4, width: 380, height: 22), radius: 6, fill: NSColor(white: 0, alpha: 0.75))
-            c.text("Mic access needed: System Settings › Privacy › Microphone", x: c.width / 2, size: 10, color: .white, align: .center)
+            let msg = "Mic access needed — System Settings › Privacy › Microphone"
+            let mw = Canvas.measure(msg, size: Metrics.Font.label, weight: .medium) + 40
+            let r = CGRect(x: c.width / 2 - mw / 2, y: 4, width: mw, height: 22)
+            c.panel(r, fill: theme.surfaceHi, radius: 11)
+            c.symbol("mic.slash.fill", in: CGRect(x: r.minX + 8, y: r.minY, width: 14, height: r.height), color: theme.warn, pointSize: 9)
+            c.text(msg, x: r.minX + 28, size: Metrics.Font.label, color: theme.text, weight: .medium)
         }
     }
 

@@ -206,22 +206,6 @@ public final class Particles {
 
 // MARK: - Juice: easing, screen shake, glow, icons
 
-public enum Ease {
-    public static func clamp01(_ t: Double) -> Double { max(0, min(1, t)) }
-    public static func outCubic(_ t: Double) -> Double { let u = 1 - clamp01(t); return 1 - u * u * u }
-    public static func inCubic(_ t: Double) -> Double { let u = clamp01(t); return u * u * u }
-    public static func inOutSine(_ t: Double) -> Double { -(cos(.pi * clamp01(t)) - 1) / 2 }
-    public static func outBack(_ t: Double, _ s: Double = 1.70158) -> Double {
-        let u = clamp01(t) - 1
-        return 1 + (s + 1) * u * u * u + s * u * u
-    }
-    public static func outElastic(_ t: Double) -> Double {
-        let u = clamp01(t)
-        if u == 0 || u == 1 { return u }
-        return pow(2, -10 * u) * sin((u * 10 - 0.75) * (2 * .pi / 3)) + 1
-    }
-}
-
 /// Trauma-based screen shake: add trauma on impacts, it decays smoothly; offset grows with trauma².
 public final class Shake {
     public var trauma: CGFloat = 0

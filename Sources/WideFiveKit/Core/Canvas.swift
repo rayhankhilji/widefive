@@ -163,6 +163,181 @@ public final class Canvas {
     }
 }
 
+
+// MARK: - Design-system helpers
+
+public enum ButtonStyle {
+    /// Neutral surface.
+    case plain
+    /// Filled with the accent (or a given colour).
+    case filled(NSColor?)
+    /// Surface washed with a colour; content takes the colour.
+    case tinted(NSColor)
+    /// No resting background; only shows when pressed/selected.
+    case ghost
+}
+
+public extension Canvas {
+    /// Strip background (gradient when the theme has one).
+    func background() {
+        if let top = theme.backgroundTop { gradient(bounds, [top, theme.background]) } else { fill(bounds, theme.background) }
+    }
+
+    var cornerRadius: CGFloat { theme.radius }
+
+    /// Draws `body` scaled around `center`.
+    func scaled(_ s: CGFloat, around center: CGPoint, _ body: () -> Void) {
+        guard abs(s - 1) > 0.0005 else { body(); return }
+        cg.saveGState()
+        cg.translateBy(x: center.x, y: center.y)
+        cg.scaleBy(x: s, y: s)
+        cg.translateBy(x: -center.x, y: -center.y)
+        body()
+        cg.restoreGState()
+    }
+
+    func translated(_ dx: CGFloat, _ dy: CGFloat = 0, _ body: () -> Void) {
+        cg.saveGState(); cg.translateBy(x: dx, y: dy); body(); cg.restoreGState()
+    }
+
+    /// Group opacity: everything in `body` fades together.
+    func faded(_ a: CGFloat, _ body: () -> Void) {
+        if a >= 0.999 { body(); return }
+        guard a > 0.001 else { return }
+        cg.saveGState()
+        cg.setAlpha(a)
+        cg.beginTransparencyLayer(auxiliaryInfo: nil)
+        body()
+        cg.endTransparencyLayer()
+        cg.restoreGState()
+    }
+
+    /// Soft bloom behind whatever `body` draws. Scaled by the theme's glow strength.
+    func glowing(_ color: NSColor, blur: CGFloat = 8, strength: CGFloat = 1, _ body: () -> Void) {
+        let a = theme.glow * strength
+        guard a > 0.01 else { body(); return }
+        cg.saveGState()
+        cg.setShadow(offset: .zero, blur: blur, color: color.withAlphaComponent(min(1, 0.85 * a)).cgColor)
+        body()
+        cg.restoreGState()
+    }
+
+    /// A themed card: soft vertical sheen, hairline border, top highlight.
+    func panel(_ r: CGRect, fill: NSColor? = nil, radius: CGFloat? = nil, stroke: NSColor? = nil, sheen: Bool = true) {
+        let rad = min(radius ?? theme.radius, r.height / 2, r.width / 2)
+        let base = fill ?? theme.surface
+        if sheen, base.alphaComponent > 0.05 {
+            let top = theme.isLight ? base.mix(.white, 0.5) : base.mix(.white, 0.07)
+            let bottom = theme.isLight ? base.mix(.black, 0.02) : base.mix(.black, 0.12)
+            gradient(r, [top, bottom], radius: rad)
+        } else {
+            roundRect(r, radius: rad, fill: base)
+        }
+        let path = CGPath(roundedRect: r.insetBy(dx: 0.25, dy: 0.25), cornerWidth: max(0, rad - 0.25), cornerHeight: max(0, rad - 0.25), transform: nil)
+        cg.addPath(path)
+        cg.setStrokeColor((stroke ?? theme.stroke).cgColor)
+        cg.setLineWidth(0.5)
+        cg.strokePath()
+        if sheen, !theme.isLight, r.width > rad * 2 + 2 {
+            self.fill(CGRect(x: r.minX + rad, y: r.maxY - 1, width: r.width - rad * 2, height: 0.5), theme.highlight)
+        }
+    }
+
+    /// Standard button chrome with press animation. `body` draws the content (already scaled) with the right
+    /// foreground colour. `pressed` is 0…1 from `Presses`, `selected` lights it up.
+    func button(_ r: CGRect, style: ButtonStyle = .plain, pressed: CGFloat = 0, selected: Bool = false,
+                radius: CGFloat? = nil, _ body: (NSColor) -> Void = { _ in }) {
+        let p = max(0, min(1, pressed))
+        scaled(1 - 0.06 * p, around: CGPoint(x: r.midX, y: r.midY)) {
+            var fg = theme.text
+            switch style {
+            case .plain:
+                let f = selected ? theme.accent : theme.surface.mix(theme.surfaceHi, p)
+                if selected { glowing(theme.accent, blur: 7, strength: 0.7) { panel(r, fill: f, radius: radius) } } else { panel(r, fill: f, radius: radius) }
+                fg = selected ? theme.onAccent : theme.text
+            case .filled(let c):
+                let col = c ?? theme.accent
+                glowing(col, blur: 6 + 6 * p, strength: 0.55 + 0.45 * p) { panel(r, fill: col.mix(theme.isLight ? .black : .white, 0.18 * p), radius: radius) }
+                fg = theme.on(col)
+            case .tinted(let c):
+                let wash = theme.surface.mix(c, (theme.isLight ? 0.16 : 0.22) + 0.25 * p + (selected ? 0.4 : 0))
+                panel(r, fill: wash, radius: radius, stroke: c.withAlphaComponent(theme.isLight ? 0.35 : 0.28))
+                fg = selected ? theme.on(wash) : (theme.isLight ? c.mix(.black, 0.15) : c.mix(.white, 0.15))
+            case .ghost:
+                if p > 0.01 || selected {
+                    panel(r, fill: (selected ? theme.surfaceHi : theme.surface).withAlphaComponent(max(selected ? 1 : 0, p)), radius: radius)
+                }
+            }
+            if p > 0.01, theme.glow > 0 {
+                glowing(theme.accent, blur: 10, strength: p * 0.8) {
+                    roundRect(r, radius: radius ?? theme.radius, fill: .clear, stroke: theme.accent.withAlphaComponent(0.55 * p), lineWidth: 1)
+                }
+            }
+            body(fg)
+        }
+    }
+
+    /// Fades content into the background at a scroll edge.
+    func edgeFade(x: CGFloat, width: CGFloat, leftEdge: Bool) {
+        let bg = theme.background
+        let r = CGRect(x: leftEdge ? x : x - width, y: 0, width: width, height: height)
+        let cols = leftEdge ? [bg, bg.withAlphaComponent(0)] : [bg.withAlphaComponent(0), bg]
+        gradient(r, cols, horizontal: true)
+    }
+
+    /// Draws `body` with its left/right edges alpha-faded (works over any background).
+    func fadeEdges(_ r: CGRect, left: CGFloat, right: CGFloat, _ body: () -> Void) {
+        guard left > 0.5 || right > 0.5 else { body(); return }
+        cg.saveGState()
+        cg.beginTransparencyLayer(auxiliaryInfo: nil)
+        body()
+        cg.setBlendMode(.destinationOut)
+        let solid = NSColor.black, clear = NSColor.black.withAlphaComponent(0)
+        if left > 0.5 { gradient(CGRect(x: r.minX, y: r.minY, width: left, height: r.height), [solid, clear], horizontal: true) }
+        if right > 0.5 { gradient(CGRect(x: r.maxX - right, y: r.minY, width: right, height: r.height), [clear, solid], horizontal: true) }
+        cg.endTransparencyLayer()
+        cg.restoreGState()
+    }
+
+    /// Progress ring (fraction 0…1, clockwise from 12 o'clock).
+    func ring(center: CGPoint, radius: CGFloat, width: CGFloat, fraction: CGFloat, color: NSColor, track: NSColor? = nil) {
+        cg.saveGState()
+        cg.setLineCap(.round)
+        cg.setLineWidth(width)
+        cg.setStrokeColor((track ?? theme.dim.withAlphaComponent(0.25)).cgColor)
+        cg.addArc(center: center, radius: radius, startAngle: 0, endAngle: .pi * 2, clockwise: false)
+        cg.strokePath()
+        if fraction > 0.001 {
+            cg.setStrokeColor(color.cgColor)
+            cg.addArc(center: center, radius: radius, startAngle: .pi / 2, endAngle: .pi / 2 - min(1, fraction) * .pi * 2, clockwise: true)
+            cg.strokePath()
+        }
+        cg.restoreGState()
+    }
+
+    /// Thin progress/level bar with a gradient fill.
+    func meter(_ r: CGRect, value: CGFloat, colors: [NSColor]? = nil, track: NSColor? = nil) {
+        let rad = r.height / 2
+        roundRect(r, radius: rad, fill: track ?? theme.dim.withAlphaComponent(theme.isLight ? 0.22 : 0.25))
+        let v = max(0, min(1, value))
+        guard v > 0.001 else { return }
+        let fillR = CGRect(x: r.minX, y: r.minY, width: max(r.height, r.width * v), height: r.height)
+        gradient(fillR, colors ?? [theme.accent, theme.accent2], horizontal: true, radius: rad)
+    }
+
+    /// Small uppercase label.
+    @discardableResult
+    func caption(_ s: String, x: CGFloat, y: CGFloat? = nil, color: NSColor? = nil, align: NSTextAlignment = .left, maxWidth: CGFloat? = nil) -> CGFloat {
+        let attrs: [NSAttributedString.Key: Any] = [.font: Canvas.font(Metrics.Font.caption, .bold), .foregroundColor: color ?? theme.dim, .kern: 0.6]
+        let str = NSAttributedString(string: s.uppercased(), attributes: attrs)
+        let size = str.size()
+        let ox = align == .center ? x - size.width / 2 : (align == .right ? x - size.width : x)
+        let oy = y ?? (height - size.height) / 2
+        clip(CGRect(x: ox, y: 0, width: maxWidth ?? size.width + 1, height: height)) { withGraphicsContext { str.draw(at: CGPoint(x: ox, y: oy)) } }
+        return size.width
+    }
+}
+
 public struct Sprite {
     public let rows: [String]
     public let palette: [Character: NSColor]
