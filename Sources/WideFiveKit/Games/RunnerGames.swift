@@ -42,8 +42,8 @@ public final class DashGame: StripMode, DemoStartable {
         enemies = []; coins = []
         groundH = 1
         for _ in 0..<60 { appendColumn(groundH, platform: false) }
-        player = Body(x: 40, y: 5, w: 5, h: 6)
-        speed = 90; camX = 0; score = 0; coinCount = 0; jumps = 0
+        player = Body(x: 200, y: 5, w: 5, h: 6)
+        speed = 90; camX = player.x - 140; score = 0; coinCount = 0; jumps = 0
     }
 
     func appendColumn(_ h: Int, platform: Bool, spike: Bool = false) {
@@ -248,7 +248,7 @@ public final class FlipGame: StripMode, DemoStartable {
     let world = TileWorld()
     let particles = Particles()
     var state: State = .title
-    var player = Body(x: 40, y: 5, w: 5, h: 6)
+    var player = Body(x: 200, y: 5, w: 5, h: 6)
     var down = true
     var speed: CGFloat = 80
     var camX: CGFloat = 0
@@ -274,8 +274,8 @@ public final class FlipGame: StripMode, DemoStartable {
         world.cols = []; world.origin = 0; world.leftWall = false
         gems = []; trail = []
         for _ in 0..<60 { column(floor: true, ceil: true) }
-        player = Body(x: 40, y: 5, w: 5, h: 6)
-        down = true; speed = 80; camX = 0; gemCount = 0; score = 0
+        player = Body(x: 200, y: 5, w: 5, h: 6)
+        down = true; speed = 80; camX = player.x - 160; gemCount = 0; score = 0
     }
 
     func column(floor: Bool, ceil: Bool, floorSpike: Bool = false, ceilSpike: Bool = false) {
@@ -307,7 +307,7 @@ public final class FlipGame: StripMode, DemoStartable {
                 for _ in 0..<(5 + rng.next(5)) { column(floor: true, ceil: true) }
                 gems.append(CGPoint(x: CGFloat(c + 3) * 5, y: rng.next(2) == 0 ? 6 : 20))
             }
-            for _ in 0..<3 { column(floor: true, ceil: true) }
+            for _ in 0..<5 { column(floor: true, ceil: true) }
         }
     }
 
@@ -370,8 +370,10 @@ public final class FlipGame: StripMode, DemoStartable {
             let col = Int((player.x + ahead) / T)
             return floor ? (world.get(col, 0) != .ground || world.get(col, 1) == .spike) : (world.get(col, 5) != .ground || world.get(col, 4) == .spike)
         }
-        let soon = bad(down, 9) || bad(down, 13)
-        if soon, !bad(!down, 14), !bad(!down, 20) { tap(auto: true) }
+        let reach = speed * 0.32 + 12
+        let soon = stride(from: CGFloat(9), through: 12 + speed * 0.16, by: 2).contains { bad(down, $0) }
+        let clear = !stride(from: reach - 8, through: reach + 8, by: 2).contains { bad(!down, $0) }
+        if soon, clear { tap(auto: true) }
     }
 
     public func draw(_ c: Canvas) {
