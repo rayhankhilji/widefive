@@ -1,0 +1,91 @@
+import AppKit
+
+public struct StripTouch {
+    public let id: Int
+    public var x: CGFloat
+    public var y: CGFloat
+    public let startX: CGFloat
+    public let startTime: Double
+    public var time: Double
+    public var dx: CGFloat { x - startX }
+    public var duration: Double { time - startTime }
+}
+
+/// Everything a mode can do to the outside world.
+public final class ModeContext {
+    public var size: CGSize = CGSize(width: 1085, height: 30)
+    public var theme: Theme = .neon
+    public var config: Config = .default
+    public var requestRedraw: () -> Void = {}
+    public var switchMode: (String) -> Void = { _ in }
+    public var goBack: () -> Void = {}
+    public var toast: (String) -> Void = { _ in }
+    public var run: (Action) -> Void = { _ in }
+    public var frontmostBundleId: String?
+    public var frontmostAppName: String?
+    public init() {}
+}
+
+public protocol StripMode: AnyObject {
+    var id: String { get }
+    var title: String { get }
+    var icon: String { get }
+    /// true → redraw at 60fps; false → redraw every `refreshInterval`.
+    var isAnimated: Bool { get }
+    var refreshInterval: Double { get }
+    /// Whether global gestures (2-finger volume etc.) are active while this mode is shown.
+    var allowsGestures: Bool { get }
+    /// Shows the small exit button at the far left (games, fullscreen modes).
+    var showsExitButton: Bool { get }
+
+    func activate(_ ctx: ModeContext)
+    func deactivate()
+    func update(dt: Double)
+    func draw(_ c: Canvas)
+    func touchBegan(_ t: StripTouch)
+    func touchMoved(_ t: StripTouch)
+    func touchEnded(_ t: StripTouch)
+    func touchCancelled(_ t: StripTouch)
+    func keyDown(_ key: GameKey)
+    func keyUp(_ key: GameKey)
+}
+
+public enum GameKey { case left, right, up, down, jump, run, action }
+
+public extension StripMode {
+    var isAnimated: Bool { false }
+    var refreshInterval: Double { 1.0 }
+    var allowsGestures: Bool { true }
+    var showsExitButton: Bool { false }
+    func deactivate() {}
+    func update(dt: Double) {}
+    func touchBegan(_ t: StripTouch) {}
+    func touchMoved(_ t: StripTouch) {}
+    func touchEnded(_ t: StripTouch) {}
+    func touchCancelled(_ t: StripTouch) { touchEnded(t) }
+    func keyDown(_ key: GameKey) {}
+    func keyUp(_ key: GameKey) {}
+}
+
+public final class ModeRegistry {
+    public private(set) var modes: [StripMode] = []
+    public init() {}
+    public func register(_ m: StripMode) { modes.removeAll { $0.id == m.id }; modes.append(m) }
+    public func mode(_ id: String) -> StripMode? { modes.first { $0.id == id } }
+
+    public static func standard() -> ModeRegistry {
+        let r = ModeRegistry()
+        r.register(HomeMode())
+        r.register(LauncherMode(registry: r))
+        r.register(PlumberGame())
+        r.register(DashGame())
+        r.register(FlipGame())
+        r.register(PianoMode())
+        r.register(VisualizerMode())
+        r.register(AmbientMode())
+        r.register(ClipboardMode())
+        r.register(DockMode())
+        r.register(StatsMode())
+        return r
+    }
+}
