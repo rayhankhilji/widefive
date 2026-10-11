@@ -79,7 +79,12 @@ jobs:
           key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
 
       - name: Build, package, sign appcast and publish
-        run: Scripts/release.sh "$TAG" --publish
+        run: |
+          set -o pipefail
+          if ! Scripts/release.sh "$TAG" --publish 2>&1 | tee "$RUNNER_TEMP/release.log"; then
+            tail -n 15 "$RUNNER_TEMP/release.log" | sed 's/\x1b\[[0-9;]*m//g' | while IFS= read -r l; do echo "::error::$l"; done
+            exit 1
+          fi
 
       - name: Upload artifacts
         if: always()
