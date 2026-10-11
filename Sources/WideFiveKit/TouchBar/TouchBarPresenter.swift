@@ -79,7 +79,54 @@ public final class TouchBarPresenter: NSObject, NSTouchBarDelegate {
 
     @objc private func trayTapped() { present() }
 
+    // MARK: System Touch Bar mode
+    // macOS only shows a system-modal bar while the Touch Bar is set to "App Controls"
+    // (com.apple.touchbar.agent PresentationModeGlobal = app / appWithControlStrip). If the user picked
+    // Expanded Control Strip or F-keys, switch it while widefive runs and restore it on quit (same as Pock).
+
+    private static let agentID = "com.apple.touchbar.agent" as CFString
+    private static let modeKey = "PresentationModeGlobal" as CFString
+    private static let savedModeKey = "widefive.originalTouchBarMode"
+
+    static var systemMode: String? {
+        CFPreferencesAppSynchronize(agentID)
+        return CFPreferencesCopyAppValue(modeKey, agentID) as? String
+    }
+
+    private static func setSystemMode(_ mode: String) {
+        CFPreferencesSetAppValue(modeKey, mode as CFString, agentID)
+        CFPreferencesAppSynchronize(agentID)
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        p.arguments = ["ControlStrip"]
+        try? p.run()
+        p.waitUntilExit()
+        NSLog("widefive: Touch Bar system mode -> %@", mode)
+    }
+
+    /// Returns true if the mode had to change (the agent restarts, so present again shortly after).
+    private func ensureAppMode() -> Bool {
+        let wanted = hideControlStrip ? "app" : "appWithControlStrip"
+        let current = Self.systemMode ?? "app"
+        guard current != wanted else { return false }
+        if UserDefaults.standard.string(forKey: Self.savedModeKey) == nil {
+            UserDefaults.standard.set(current, forKey: Self.savedModeKey)
+        }
+        Self.setSystemMode(wanted)
+        return true
+    }
+
+    /// Puts back the Touch Bar mode the user had before widefive changed it.
+    public static func restoreSystemMode() {
+        guard let saved = UserDefaults.standard.string(forKey: savedModeKey) else { return }
+        UserDefaults.standard.removeObject(forKey: savedModeKey)
+        setSystemMode(saved)
+    }
+
     public func present() {
+        if ensureAppMode() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.present() }
+        }
         installTrayItem()
         if let h = Self.dfr, let s = dlsym(h, "DFRSystemModalShowsCloseBoxWhenFrontMost") {
             unsafeBitCast(s, to: DFRShowsCloseBox.self)(false)
@@ -103,7 +150,8 @@ public final class TouchBarPresenter: NSObject, NSTouchBarDelegate {
         }
         isPresented = true
         status = "presented (\(method)), checking…"
-        NSLog("widefive: present via %@ (DFRFoundation %@, strip %.0fpt)", method, Self.dfr == nil ? "NOT loaded" : "loaded", stripView.preferredWidth)
+        NSLog("widefive: present via %@ (DFRFoundation %@, strip %.0fpt, system mode %@)", method, Self.dfr == nil ? "NOT loaded" : "loaded",
+              stripView.preferredWidth, Self.systemMode ?? "unset")
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.verify(method) }
     }
 
@@ -130,6 +178,7 @@ public final class TouchBarPresenter: NSObject, NSTouchBarDelegate {
     }
 
     public func dismiss() {
+        defer { Self.restoreSystemMode() }
         for name in ["dismissSystemModalTouchBar:", "dismissSystemModalFunctionBar:"] {
             if let (f, sel) = Self.classIMP(NSTouchBar.self, name, as: ClassVoidObj.self) { f(NSTouchBar.self, sel, touchBar); break }
         }
