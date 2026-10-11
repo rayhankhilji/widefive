@@ -782,7 +782,7 @@ public final class DuelGame: StripMode, DemoStartable {
             c.cg.setStrokeColor(NSColor(white: 1, alpha: 0.5).cgColor); c.cg.setLineWidth(0.5)
             let outline = slant(0, 1); c.cg.beginPath(); c.cg.addLines(between: outline); c.cg.closePath(); c.cg.strokePath()
             // energy: 4 segments
-            let segW = (barW * 0.62 - 3) / 4
+            let segW = (barW * 0.5 - 3) / 4
             for k in 0..<4 {
                 let fill = max(0, min(1, fi.energy / 25 - CGFloat(k)))
                 let sx = p == 0 ? x0 + barW - 2 - CGFloat(k + 1) * (segW + 1) : x0 + 2 + CGFloat(k) * (segW + 1)
@@ -793,12 +793,13 @@ public final class DuelGame: StripMode, DemoStartable {
                 let fr = p == 0 ? CGRect(x: r.maxX - r.width * fill, y: r.minY, width: r.width * fill, height: r.height) : CGRect(x: r.minX, y: r.minY, width: r.width * fill, height: r.height)
                 if fill > 0 { c.roundRect(fr, radius: 0.6, fill: ecol) }
             }
-            if fi.energy >= 100 {
-                let ex = p == 0 ? x0 + barW - barW * 0.62 - 4 : x0 + barW * 0.62 + 4
-                c.text("★ READY", x: ex, y: 19.8, size: 4.6, color: NSColor(hex: "#ffd23f"), weight: .black, align: p == 0 ? .right : .left)
-            }
             let tag = "\(name(p)) · \(cl.name)"
-            c.text(tag, x: p == 0 ? x0 - 3 : x0 + barW + 3, y: 23.6, size: 5.2, color: cl.color, weight: .black, align: p == 0 ? .right : .left)
+            let tagW = Canvas.measure(tag, size: 4.6, weight: .black)
+            c.text(tag, x: p == 0 ? x0 + 1 : x0 + barW - 1, y: 19.8, size: 4.6, color: cl.color, weight: .black, align: p == 0 ? .left : .right)
+            if fi.energy >= 100 {
+                let ex = p == 0 ? x0 + 1 + tagW + 4 : x0 + barW - 1 - tagW - 4
+                c.text("★ READY", x: ex, y: 19.8, size: 4.6, color: NSColor(hex: "#ffd23f"), weight: .black, align: p == 0 ? .left : .right)
+            }
             for w in 0..<2 {
                 let cx = p == 0 ? badge.minX + 5 + CGFloat(w) * 4.5 : badge.maxX - 5 - CGFloat(w) * 4.5
                 let won = w < fi.wins

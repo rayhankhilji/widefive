@@ -100,6 +100,7 @@ public final class DashGame: StripMode, DemoStartable {
         world.move(&player, dt: dt)
         if player.onGround { jumps = 0 }
         if demo, player.y < 4, player.vy < 0, !player.onGround { player.vy = 150; jumps = 1 }
+        if demo, player.hitWall { player.vy = max(player.vy, 160); player.hitWall = false }
         if player.hitWall || player.y < -10 || (!demo && world.touches(player, .spike)) { die(); return }
         camX = player.x - 140
         generate(until: Int((camX + 1300) / 5))
@@ -166,7 +167,8 @@ public final class DashGame: StripMode, DemoStartable {
         let front = player.x + player.w
         let row = max(0, Int((player.y + 0.5) / T))
         let rows = player.y > 12 ? 5 : 3
-        let wall = world.get(col(front + 3), row) != .empty && world.get(col(front + 3), row) != .spike && world.get(col(front + 3), row) != .platform
+        func solid(_ x: CGFloat) -> Bool { let t = world.get(col(x), row); return t != .empty && t != .spike && t != .platform }
+        let wall = solid(front + 3) || solid(front + 3 + speed * 0.1)
         let bot = enemies.contains { $0.x > player.x && $0.x - player.x < 20 }
         if player.onGround {
             if !safe(col(front + 3), rows) || !safe(col(front + 7), rows) || wall || bot { jump(auto: true) }
