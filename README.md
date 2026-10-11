@@ -1,142 +1,142 @@
+<div align="center">
+
+<img src="docs/media/icon.png" width="112" alt="widefive icon">
+
 # widefive
 
-Take over the MacBook Pro Touch Bar completely and make it yours: widgets, per-app script layouts,
-gestures, Mario-style games, a synth, an audio visualizer, ambient scenes and more. Built from scratch in
-Swift for the 2016–2020 Touch Bar MacBook Pros (developed for a 2020 13" i5).
+**Your Touch Bar, rebuilt from scratch.**<br>
+An arcade, a race track, a dashboard and a remote for every app, in the 30-pixel strip above your keyboard.
 
-No firmware or T2 hacking: widefive is a normal menu-bar app that uses the private `DFRFoundation`
-API (`presentSystemModalTouchBar`) to replace the whole strip, Control Strip included. Quit the app and
-your stock Touch Bar comes back.
+[![Download](https://img.shields.io/github/v/release/rayhankhilji/widefive?label=download&style=for-the-badge&color=ff2d95)](https://github.com/rayhankhilji/widefive/releases/latest)
+&nbsp;
+![macOS 12+](https://img.shields.io/badge/macOS-12%2B-111?style=for-the-badge&logo=apple)
+&nbsp;
+![Intel + Apple Silicon](https://img.shields.io/badge/Intel%20%2B%20Apple%20Silicon-universal-111?style=for-the-badge)
 
-![home](docs/shots/home.png)
-![plumber](docs/shots/plumber.png)
-![launcher](docs/shots/launcher.png)
-![control](docs/shots/control.png)
+<img src="docs/media/race.gif" width="100%" alt="Strip Racer: two players racing with speedometers on the edges and a live track map in the middle">
 
-## Install
+<sub>Two players, one Touch Bar. Speedometers on the edges, the live track map in the middle.</sub>
 
-> **First launch (important):** widefive isn't notarized by Apple, so macOS blocks the first open.
-> **Right-click widefive.app → Open → Open**. On macOS 15+ (or if there's no Open button):
-> try to open it once, then **System Settings → Privacy & Security → scroll down → "Open Anyway"**.
-> You only do this once; updates keep working afterwards.
+</div>
 
-| Option | How |
+---
+
+Apple gave the Touch Bar a few emoji buttons and a volume slider. widefive takes over the whole strip (the Control Strip too) and draws whatever it wants at 60 fps: 11 games, live widgets, buttons that change with the app you're in, gestures, a synth and 10 themes.
+
+It's a normal menu-bar app. No firmware hacks and no T2 jailbreak. Quit it and your stock Touch Bar comes straight back.
+
+## Get it
+
+1. **[Download the latest DMG](https://github.com/rayhankhilji/widefive/releases/latest)** and drag widefive into Applications.
+2. Open it the first time with **right-click → Open → Open**. widefive isn't notarized by Apple, so macOS asks once. On macOS 15+, try opening it once, then go to **System Settings → Privacy & Security → Open Anyway**.
+3. Allow **Accessibility** when it asks. Buttons need it to send shortcuts, and games need it to borrow your keyboard.
+
+That's it. widefive checks for updates daily and installs them in one click.
+
+<details>
+<summary>Zip, from source, and the "app is damaged" message</summary>
+
+- **Zip:** grab `widefive-x.y.z.zip` from [Releases](https://github.com/rayhankhilji/widefive/releases/latest), unzip, move `widefive.app` to `/Applications`.
+- **From source:**
+  ```bash
+  git clone https://github.com/rayhankhilji/widefive && cd widefive
+  swift build -c release && .build/release/widefive
+  ```
+  Add `--preview` for an on-screen strip you can click with the mouse (handy on Macs without a Touch Bar). The first release build takes a few minutes; later builds are quick.
+- **"widefive is damaged and can't be opened":** that's the quarantine flag on unsigned downloads. Run `xattr -dr com.apple.quarantine /Applications/widefive.app` once.
+- **Permissions:** Accessibility (shortcuts, typing, game key lock), Automation (AppleScript buttons, now playing), Microphone (only while the visualizer is open).
+
+</details>
+
+## Games
+
+Every game runs on the bar itself. Tap **⌨** (or press <kbd>⌃⌥⌘K</kbd>) and your keyboard becomes the controller. Press it again, or <kbd>Esc</kbd>, to give the keys back. <kbd>P</kbd> pauses.
+
+### Strip Racer: 1 or 2 players
+
+<img src="docs/media/race-bots.gif" width="100%" alt="Strip Racer against five bots with a live leaderboard">
+
+Race five bots or a friend on four circuits: a **Grand Prix** track with grandstands, crowds, kerbs and a start gantry, plus **Coast**, **Alpine** and **Night City**. Pick from seven cars, each with its own top speed, acceleration and grip: Lamborghini Aventador, F1, Land Rover Defender, Mercedes G 63, BMW M5, Audi R8 and LaFerrari. The off-roaders barely slow down on grass; the F1 car really does. Choose a camera per player: chase, hood or cockpit.
+
+<img src="docs/media/race-cockpit.gif" width="100%" alt="Cockpit camera for both players">
+
+Three laps, nitro, start lights and a podium. Sound starts off every time, so it never surprises you in a library.
+
+### Strip Duel: 2 players
+
+<img src="docs/media/duel.gif" width="100%" alt="Strip Duel arena fight">
+
+A fighting game the full width of the bar. **Blaster** sprays a five-way shot, **Tank** has 150 HP and a ground-pound quake, **Ninja** triple-jumps and dashes. Specials charge as you land and take hits. Best of three, against a bot or the person next to you.
+
+### Tiny Plumber
+
+<img src="docs/media/plumber.gif" width="100%" alt="Tiny Plumber platformer">
+
+The Mario-style one: ? blocks, mushrooms, stars, breakable bricks, enemies to stomp and a flagpole, with a fresh world generated every level.
+
+### The arcade
+
+| | |
+|:--|:--|
+| <img src="docs/media/dash.gif" alt="Neon Dash"><br>**Neon Dash.** It runs on its own; you tap to jump and double-jump. | <img src="docs/media/flip.gif" alt="Gravity Flip"><br>**Gravity Flip.** One button flips you between floor and ceiling. |
+| <img src="docs/media/shooter.gif" alt="Starstrip"><br>**Starstrip.** A side-scrolling shooter with power-ups and waves. | <img src="docs/media/breakout.gif" alt="Breakout"><br>**Breakout.** Bricks across 1004 points of glass. |
+| <img src="docs/media/snake.gif" alt="Snake"><br>**Snake.** The longest snake you'll ever play. | <img src="docs/media/stills/pong-title.png" alt="Pong"><br>**Pong** and **Flap** round it out. |
+
+**Two-player keys:** P1 uses <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>, <kbd>F</kbd> to shoot or nitro and <kbd>G</kbd> for the special. P2 uses the arrow keys, <kbd>/</kbd> to shoot or nitro and <kbd>.</kbd> for the special. Without the keyboard lock, each half of the bar becomes a touch pad.
+
+## The everyday bar
+
+<img src="docs/media/stills/home.png" width="100%" alt="Home bar in VS Code">
+
+**It knows what app you're in.** The middle of the bar swaps to buttons made for the app in front: VS Code, Cursor, Xcode, Terminal, iTerm, Warp, browsers, Spotify, Finder, Slack, Figma, Zoom and more. Final Cut and Logic get the stock bar back, because their own Touch Bar support is good. Widgets live on the right.
+
+<img src="docs/media/stills/control.png" width="100%" alt="Control bar">
+
+**Control bar** (<kbd>⌃⌥⌘C</kbd>): volume, display brightness, keyboard backlight, media keys, dark mode, keep-awake, screenshot, Mission Control, lock and display sleep.
+
+<img src="docs/media/launcher.gif" width="100%" alt="Mode launcher">
+
+**Launcher** (<kbd>⌃⌥⌘Space</kbd>): every mode, one swipe away.
+
+**Gestures:** slide two fingers for volume and three for brightness. A two-finger tap plays or pauses, and swiping in from the left edge opens the launcher.
+
+## Themes
+
+<img src="docs/media/themes.gif" width="100%" alt="widefive cycling through its themes">
+
+Neon, Graphite Pro, Midnight, Sunset, Nord, Dracula, Paper, Matcha, Synthwave and Mono OLED. Switch from the menu bar, or open the Themes mode and tap through them live.
+
+## Toys and tools
+
+| | |
+|:--|:--|
+| <img src="docs/media/visualizer.gif" alt="Visualizer"><br>**Visualizer.** Your mic as a spectrum across the whole strip. | <img src="docs/media/ambient.gif" alt="Ambient scenes"><br>**Ambient.** Nyan, matrix rain, starfield, game of life, fire, aurora. |
+| <img src="docs/media/pet.gif" alt="Pixel pet"><br>**Pixel cat.** Runs when your CPU is busy, naps when it's idle, purrs when you tap it. | <img src="docs/media/stills/piano.png" alt="Piano"><br>**Piano.** Two octaves, multi-touch, four waveforms. |
+| <img src="docs/media/stills/timer.png" alt="Timer"><br>**Timer.** A stopwatch with laps, plus quick countdowns. | <img src="docs/media/stills/stats.png" alt="Stats"><br>**Stats.** CPU, RAM, network, temperature, fan, battery and disk. |
+
+Also: a calculator, an emoji bar that types for you, clipboard history and a strip of running apps.
+
+## Hotkeys
+
+| Keys | |
 | --- | --- |
-| **DMG** (recommended) | Download `widefive-x.y.z.dmg` from [Releases](https://github.com/rayhankhilji/widefive/releases/latest), open it, drag widefive onto Applications |
-| **Zip** | Download `widefive-x.y.z.zip`, unzip, move `widefive.app` to `/Applications` |
-| **Homebrew** | `brew install --cask rayhankhilji/tap/widefive` |
-| **From source** | see below |
+| <kbd>⌃⌥⌘Space</kbd> | launcher |
+| <kbd>⌃⌥⌘H</kbd> | home |
+| <kbd>⌃⌥⌘G</kbd> | Tiny Plumber |
+| <kbd>⌃⌥⌘C</kbd> | control bar |
+| <kbd>⌃⌥⌘K</kbd> | lock or unlock the keyboard to the current game |
+| <kbd>⌃⌥⌘T</kbd> | re-show the bar if macOS takes it back |
+| <kbd>⌃⌥⌘P</kbd> | preview window |
+| <kbd>⌃⌥⌘M</kbd> | open the menu, even with the menu-bar icon hidden |
 
-If macOS says the app "is damaged" (a quarantine flag on unsigned downloads), run once:
-`xattr -dr com.apple.quarantine /Applications/widefive.app`.
-
-widefive runs on macOS 12+ (Apple Silicon and Intel, universal binary). It lives in the menu bar
-(no Dock icon); the menu shows the version at the top.
-
-### Permissions
-
-On first use macOS will ask for these; grant them in System Settings → Privacy & Security, then relaunch:
-
-| Permission | Why |
-| --- | --- |
-| Accessibility | sending key chords / typing text from buttons, locking game keys to the bar |
-| Automation | AppleScript actions, Spotify/Music now-playing fallback |
-| Microphone | the visualizer mode (only while it's open) |
-
-The menu-bar icon has modes, themes, "Edit config", "Reload Touch Bar", "Launch at Login",
-"Check for Updates…" and Quit.
-
-### From source
-
-```bash
-git clone https://github.com/rayhankhilji/widefive && cd widefive
-swift build -c release
-.build/release/widefive            # menu-bar app, takes over the Touch Bar
-.build/release/widefive --preview  # also opens an on-screen preview strip (mouse = finger)
-Scripts/build-app.sh --native      # or: build your own build/widefive.app
-```
-
-Requires Xcode or the Command Line Tools. Auto-update is off when running from source.
-
-## Updating
-
-| Installed via | Update |
-| --- | --- |
-| DMG / zip | automatic: widefive checks once a day (Sparkle). When an update is found you get a Touch Bar toast and **Install Update x.y.z…** in the menu. Or use **Check for Updates…** any time. Turn background checks off with **Automatically Check for Updates** |
-| Homebrew | auto-update works too; or `brew upgrade --cask widefive` |
-| Source | `git pull && swift build -c release` |
-
-Updates are verified with an EdDSA signature (Sparkle) before they're installed, so they're safe without
-an Apple Developer ID. The feed is `https://github.com/rayhankhilji/widefive/releases/latest/download/appcast.xml`.
-
-## Global hotkeys
-
-| Keys | Action |
-| --- | --- |
-| ⌃⌥⌘ Space | mode launcher |
-| ⌃⌥⌘ H | home |
-| ⌃⌥⌘ G | Tiny Plumber |
-| ⌃⌥⌘ P | toggle preview window |
-| ⌃⌥⌘ T | re-present the Touch Bar (if macOS stole it back) |
-| ⌃⌥⌘ K | lock / unlock the keyboard to the current game |
-| ⌃⌥⌘ C | control bar |
-| ⌃⌥⌘ M | show the menu-bar icon menu (even when hidden) |
-
-## Modes
-
-| id | what |
-| --- | --- |
-| `home` | per-app buttons in the middle, widgets on the right |
-| `launcher` | neon tiles for every mode (tap the leftmost button on home) |
-| `plumber` | **Tiny Plumber**: Mario-style side-scroller. ◀ ▶ walk, B run, A jump (hold = higher). ? blocks, mushrooms, stars, bricks, goombas, spikies, flagpole, endless generated worlds |
-| `dash` | **Neon Dash**: auto-runner platformer. Tap to jump, tap again to double-jump, stomp bots |
-| `flip` | **Gravity Flip**: tap to flip gravity between floor and ceiling |
-| `snake` | **Snake** across the whole strip |
-| `pong` | **Pong** rotated: your paddle at the bottom, AI at the top, first to 7 |
-| `breakout` | **Breakout** with two rows of bricks |
-| `flappy` | **Flap**: tap to flap through the gaps |
-| `shooter` | **Starstrip**: side-scrolling shooter, pad = up/down, A = fire |
-| `race` | **Strip Racer**: pseudo-3D arcade racer. Pick vs bots or vs a friend (split screen), a track (Neon City / Coast / Alpine), then each player picks a car (Lamborghini, F1, Land Rover, G-Wagon, BMW M5, Audi R8, LaFerrari) and a view (chase / cockpit / hood). 3 laps, nitro, AI cars. Sound is off every time you open it; turn it on in the menu |
-| `duel` | **Strip Duel**: two-player arena shooter across the whole bar. Blaster / Tank / Ninja, each with a charge-up special. Best of 3 vs a bot or a friend |
-| `control` | control bar: volume, mute, display brightness, keyboard backlight, media, dark mode, caffeine, screenshot, Mission Control, lock, display sleep |
-| `timer` | stopwatch with laps + 1/3/5/10/25 min countdowns |
-| `calc` | calculator with every key visible at once |
-| `emoji` | tap to type an emoji, recents float to the front |
-| `pet` | pixel cat that speeds up when your CPU is busy, naps when it's idle, tap to pet |
-| `piano` | 2-octave polyphonic synth with multi-touch, 4 waveforms, octave shift |
-| `visualizer` | live mic FFT spectrum across the whole strip |
-| `ambient` | nyan, matrix rain, starfield, game of life, fire, aurora (tap to cycle) |
-| `clipboard` | clipboard history, tap to copy an entry back |
-| `dock` | running apps, tap to switch, long-press to hide |
-| `stats` | CPU / RAM / network / temp / fan / battery / disk |
-
-### Playing games without a window
-
-Every game has a ⌨ button next to the ✕. Tap it (or press ⌃⌥⌘K) to **lock the keyboard to the game**:
-arrows / WASD, space, Z, X and Return go to the game instead of your Mac, and the on-bar game buttons
-disappear. Tap it again (or press Esc) to give the keys back. ⌘/⌃/⌥ shortcuts are never captured.
-**P pauses** any game.
-
-Two-player games: **P1** = WASD, F (shoot / nitro), G (special), S (shield / brake).
-**P2** = arrows, / (shoot / nitro), . (special), ↓ (shield / brake). Without the lock, each side of the bar gets its own touch pad. Needs Accessibility permission. Without the lock, the keys also work when the
-preview window is focused.
-
-## Gestures (home mode)
-
-- two-finger horizontal slide → volume
-- three-finger slide → brightness
-- two-finger tap → play/pause
-- swipe in from the left edge → launcher
-- fast one-finger flick → next/previous mode in `flickOrder` (off by default since it fights scrolling; set `gestures.flickModes`)
-
-## Per-app layouts and scripts
+## Make your own buttons
 
 Everything lives in `~/.widefive/config.json` (created on first launch, hot-reloaded on save).
 Print the full default with `widefive --print-default-config`.
 
 ```jsonc
 {
-  "theme": "neon",                 // neon | mono | sunset | retro | ocean
+  "theme": "neon",                 // neon graphite midnight sunset nord dracula paper matcha synthwave oled
   "hideControlStrip": true,
   "startMode": "home",
   "apps": [
@@ -169,10 +169,10 @@ Finder, Slack/Discord, Figma, Zoom/Teams, Final Cut/Logic (passthrough).
 Widgets: `clock`, `date`, `cpu`, `ram`, `battery`, `network`, `temp`, `fan`, `disk`, `uptime`,
 `weather`, `app`, `nowplaying`, `pomodoro`.
 
-## Adding a mode
+## Build a new mode
 
 Modes are small classes implementing `StripMode` (see `Sources/WideFiveKit/Core/Mode.swift`).
-You get a `Canvas` the size of the strip (1085×30 points) every frame plus touch and key callbacks:
+You get a `Canvas` the size of the strip (1004 or 1085 × 30 points) every frame plus touch and key callbacks:
 
 ```swift
 public final class HelloMode: StripMode {
@@ -184,29 +184,22 @@ public final class HelloMode: StripMode {
         c.fill(c.bounds, .hsb(CGFloat(t * 0.1), 0.8, 0.4))
         c.text("hello touch bar", x: c.width / 2, size: 12, align: .center)
     }
-    public func touchBegan(_ t: StripTouch) { /* t.x is 0…1085 */ }
+    public func touchBegan(_ t: StripTouch) { /* t.x is 0…width */ }
 }
 ```
 
 Register it in `ModeRegistry.standard()` and it shows up in the launcher.
 
-## Strip size
+## Fit and feel
 
-widefive reads your Mac's model (`hw.model`) and sizes the strip to match: 1004pt on Macs with a
-physical Esc key (2019 16", 2020 13"), 1085pt on 2016–2018 models. The detected model and width are
-shown at the top of the menu. If it's still off, use **Strip Width → Narrower / Wider** or set
-`"stripWidth"` in the config.
-
-## Background mode
-
-widefive has no Dock icon or window. Turn on **Hide Menu-Bar Icon** to remove the menu-bar icon too;
-⌃⌥⌘M opens the menu again.
+widefive reads your Mac's model and sizes the strip to match: 1004 points on Macs with a physical Esc key (2020 13", 2019 16"), and 1085 on 2016–2018 models. The menu shows what it detected. If it's still off, use **Strip Width → Narrower / Wider**. There's no Dock icon, and **Hide Menu-Bar Icon** removes the last trace; <kbd>⌃⌥⌘M</kbd> brings the menu back.
 
 ## Development
 
 ```bash
 swift test
-swift run widefive --snapshot plumber shot.png 2   # render any mode headlessly to a PNG
+swift run widefive --snapshot race:demo shot.png 3 1004       # render any mode to a PNG
+swift run widefive --frames plumber:demo frames/ 4 1004 25 1  # PNG sequence → GIF/MP4 (how the media here was made)
 ```
 
 ## Releasing
