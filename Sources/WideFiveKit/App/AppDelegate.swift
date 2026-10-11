@@ -37,6 +37,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         p.present()
 
         controller.onModeChange = { [weak self] _ in self?.rebuildMenu() }
+        controller.onThemePicked = { [weak self] name in self?.mutateConfig { $0.theme = name } }
         setupKeyCapture()
         setupStatusItem()
         observeFrontmostApp()
@@ -194,7 +195,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(item("Hide Control Strip", #selector(toggleControlStrip), state: store.config.hideControlStrip))
         let themes = NSMenu()
         for t in Theme.all {
-            let i = item(t.name.capitalized, #selector(pickTheme(_:)), state: t.name == store.config.theme)
+            let i = item(t.displayName, #selector(pickTheme(_:)), state: t.name == Theme.named(store.config.theme).name)
             i.representedObject = t.name
             themes.addItem(i)
         }

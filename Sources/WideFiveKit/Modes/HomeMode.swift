@@ -6,7 +6,7 @@ public final class HomeMode: StripMode {
     public let title = "Home"
     public let icon = "house.fill"
     public var refreshInterval: Double { 0.5 }
-    public var isAnimated: Bool { pressed != nil || hasMarquee }
+    public var isAnimated: Bool { pressed != nil || hasMarquee || presses.animating || scroller.animating || sliders.values.contains { !$0.settled } }
 
     struct Slot {
         var item: Item
@@ -23,9 +23,10 @@ public final class HomeMode: StripMode {
     private var pressTouch: StripTouch?
     private var longPressFired = false
     private var longPressWork: DispatchWorkItem?
-    private var scrollOffset: CGFloat = 0
-    private var scrollStart: CGFloat = 0
-    private var scrolling = false
+    private var scroller = Scroller()
+    private var scrolling: Bool { scroller.dragging }
+    private let presses = Presses<Int>()
+    private var sliders: [String: Smoothed] = [:]
     private var middleRange: (CGFloat, CGFloat) = (0, 0)
     private var contentWidth: CGFloat = 0
     private var widgetCache: [String: Widget] = [:]
@@ -52,7 +53,8 @@ public final class HomeMode: StripMode {
         slots = cfg.leading.map { make($0, scrolls: false) } + middle.map { make($0, scrolls: true) } + cfg.trailing.map { make($0, scrolls: false) }
         builtFor = ctx.frontmostBundleId
         builtConfig = cfg
-        scrollOffset = 0
+        scroller = Scroller()
+        presses.cancelAll()
     }
 
     private func naturalWidth(_ s: Slot, _ ctx: ModeContext) -> CGFloat {
@@ -93,59 +95,77 @@ public final class HomeMode: StripMode {
             if w > 0 { tx -= gap }
         }
         middleRange = (x + 4, tx - 4)
-        var mx = middleRange.0 - scrollOffset
+        var mx = middleRange.0 - scroller.offset
         for i in mid {
             let w = naturalWidth(slots[i], ctx)
             slots[i].frame = CGRect(x: mx, y: 0, width: w, height: 30)
             if w > 0 { mx += w + gap }
         }
-        contentWidth = mx + scrollOffset - middleRange.0
+        contentWidth = max(0, mx - gap + scroller.offset - middleRange.0)
+        scroller.maxOffset = max(0, contentWidth - (middleRange.1 - middleRange.0))
     }
 
     public func update(dt: Double) {
         guard let ctx else { return }
         if builtFor != ctx.frontmostBundleId || builtConfig != ctx.config { rebuild() }
+        presses.step(dt)
+        scroller.step(dt)
+        for k in sliders.keys { sliders[k]?.step(dt) }
     }
 
     public func draw(_ c: Canvas) {
         guard let ctx else { return }
         layout(c.width)
-        for (i, s) in slots.enumerated() where s.frame.width > 0 {
-            let draw = { self.drawSlot(c, s, pressed: self.pressed == i, ctx: ctx) }
-            if s.scrolls { c.clip(CGRect(x: middleRange.0, y: 0, width: middleRange.1 - middleRange.0, height: 30), draw) } else { draw() }
+        for (i, s) in slots.enumerated() where s.frame.width > 0 && !s.scrolls {
+            drawSlot(c, s, pressed: presses.amount(i), ctx: ctx)
         }
-        if contentWidth > middleRange.1 - middleRange.0 {
-            let visible = middleRange.1 - middleRange.0
-            let frac = visible / contentWidth
-            let bar = CGRect(x: middleRange.0 + (scrollOffset / contentWidth) * visible, y: 0, width: visible * frac, height: 1.5)
-            c.fill(bar, c.theme.accent.withAlphaComponent(0.7))
+        let mid = CGRect(x: middleRange.0 - 1, y: 0, width: middleRange.1 - middleRange.0 + 2, height: c.height)
+        let off = scroller.offset, maxOff = scroller.maxOffset
+        c.clip(mid) {
+            c.fadeEdges(mid, left: off > 1 ? 18 : 0, right: off < maxOff - 1 ? 26 : 0) {
+                for (i, s) in slots.enumerated() where s.frame.width > 0 && s.scrolls && s.frame.maxX > mid.minX && s.frame.minX < mid.maxX {
+                    drawSlot(c, s, pressed: presses.amount(i), ctx: ctx)
+                }
+            }
+        }
+        if maxOff > 0 {
+            let visible = mid.width
+            let bw = max(20, visible * visible / (visible + maxOff))
+            let bx = mid.minX + max(0, min(1, off / maxOff)) * (visible - bw)
+            c.roundRect(CGRect(x: bx, y: 0.5, width: bw, height: 1.5), radius: 0.75, fill: c.theme.accent.withAlphaComponent(scroller.animating ? 0.75 : 0.25))
         }
     }
 
-    private func drawSlot(_ c: Canvas, _ s: Slot, pressed: Bool, ctx: ModeContext) {
-        let r = s.frame
+    private func drawSlot(_ c: Canvas, _ s: Slot, pressed p: CGFloat, ctx: ModeContext) {
+        let full = s.frame
+        let r = full.insetBy(dx: 0, dy: 1.5)
         switch s.item.kind {
-        case "widget": s.widget?.draw(c, in: r, pressed: pressed, ctx: ctx)
-        case "separator": c.fill(CGRect(x: r.midX - 0.5, y: 6, width: 1, height: 18), c.theme.dim.withAlphaComponent(0.5))
+        case "widget":
+            guard let w = s.widget else { return }
+            c.scaled(1 - 0.05 * p, around: CGPoint(x: r.midX, y: r.midY)) {
+                w.draw(c, in: r, pressed: p > 0.3, ctx: ctx)
+            }
+        case "separator": c.roundRect(CGRect(x: r.midX - 0.5, y: 8, width: 1, height: 14), radius: 0.5, fill: c.theme.dim.withAlphaComponent(0.3))
         case "spacer": break
-        case "slider": drawSlider(c, s, r)
+        case "slider": drawSlider(c, s, r, pressed: p)
         default:
-            let base = s.item.color.map { NSColor(hex: $0) } ?? c.theme.button
-            c.roundRect(r, radius: 6, fill: pressed ? base.blended(withFraction: 0.35, of: .white) ?? base : base)
+            let style: ButtonStyle = s.item.color.map { .tinted(c.theme.tint(NSColor(hex: $0))) } ?? .plain
             let title = s.item.title ?? ""
-            if let icon = s.item.icon {
-                if title.isEmpty {
-                    c.symbol(icon, in: r, color: c.theme.text, pointSize: 13)
+            c.button(r, style: style, pressed: p) { fg in
+                if let icon = s.item.icon {
+                    if title.isEmpty {
+                        c.symbol(icon, in: r, color: fg, pointSize: Metrics.icon)
+                    } else {
+                        let tw = Canvas.measure(title, size: 12, weight: .medium)
+                        let total = 16 + 5 + tw
+                        let x0 = r.midX - total / 2
+                        c.symbol(icon, in: CGRect(x: x0, y: r.minY, width: 16, height: r.height), color: fg, pointSize: Metrics.iconSmall + 0.5)
+                        c.text(title, x: x0 + 21, size: 12, color: c.theme.text, weight: .medium)
+                    }
                 } else {
-                    let tw = Canvas.measure(title, size: 12)
-                    let total = 18 + 6 + tw
-                    let x0 = r.midX - total / 2
-                    c.symbol(icon, in: CGRect(x: x0, y: 0, width: 18, height: 30), color: c.theme.text, pointSize: 12)
-                    c.text(title, x: x0 + 24, size: 12, color: c.theme.text)
+                    let emoji = title.unicodeScalars.first?.properties.isEmoji == true && title.count <= 2
+                    c.text(title, x: r.midX, size: emoji ? 16 : 12, color: c.theme.text, weight: .medium, align: .center, maxWidth: r.width - 8)
                 }
-            } else {
-                c.text(title, x: r.midX, size: title.unicodeScalars.first?.properties.isEmoji == true && title.count <= 2 ? 16 : 12,
-                       color: c.theme.text, align: .center, maxWidth: r.width - 8)
             }
         }
     }
@@ -154,14 +174,21 @@ public final class HomeMode: StripMode {
         name == "brightness" ? SystemControl.brightness : SystemControl.volume
     }
 
-    private func drawSlider(_ c: Canvas, _ s: Slot, _ r: CGRect) {
-        c.roundRect(r, radius: 6, fill: c.theme.button)
-        c.symbol(s.item.icon ?? "slider.horizontal.3", in: CGRect(x: r.minX + 2, y: 0, width: 22, height: 30), color: c.theme.text, pointSize: 11)
+    private func drawSlider(_ c: Canvas, _ s: Slot, _ r: CGRect, pressed p: CGFloat) {
+        let key = s.item.name ?? "volume"
+        let target = Double(sliderValue(s.item.name))
+        if sliders[key] == nil { sliders[key] = Smoothed(target, speed: 24) }
+        sliders[key]?.target = target
+        let v = CGFloat(max(0, min(1, sliders[key]?.value ?? target)))
+        c.panel(r)
+        c.symbol(s.item.icon ?? "slider.horizontal.3", in: CGRect(x: r.minX + 3, y: r.minY, width: 22, height: r.height), color: c.theme.accent, pointSize: Metrics.iconSmall)
         let track = CGRect(x: r.minX + 28, y: r.midY - 2, width: r.width - 38, height: 4)
-        let v = CGFloat(sliderValue(s.item.name))
-        c.roundRect(track, radius: 2, fill: c.theme.dim.withAlphaComponent(0.35))
-        c.gradient(CGRect(x: track.minX, y: track.minY, width: track.width * v, height: 4), [c.theme.accent, c.theme.accent2], horizontal: true, radius: 2)
-        c.circle(center: CGPoint(x: track.minX + track.width * v, y: track.midY), radius: 6, .white)
+        c.meter(track, value: v)
+        let knob = CGPoint(x: track.minX + track.width * v, y: track.midY)
+        c.glowing(c.theme.accent, blur: 6, strength: 0.5 + 0.5 * p) {
+            c.circle(center: knob, radius: 5.5 + 1.5 * p, c.theme.isLight ? .white : c.theme.text)
+        }
+        if c.theme.isLight { c.roundRect(CGRect(x: knob.x - 5.5 - 1.5 * p, y: knob.y - 5.5 - 1.5 * p, width: 11 + 3 * p, height: 11 + 3 * p), radius: 5.5 + 1.5 * p, fill: .clear, stroke: NSColor(white: 0, alpha: 0.15), lineWidth: 0.5) }
     }
 
     private func setSlider(_ s: Slot, x: CGFloat) {
@@ -181,10 +208,10 @@ public final class HomeMode: StripMode {
         pressed = index(at: t.x)
         pressTouch = t
         longPressFired = false
-        scrolling = false
-        scrollStart = scrollOffset
+        scroller.begin(t)
         longPressWork?.cancel()
         guard let i = pressed, let ctx else { return }
+        presses.press(i)
         if slots[i].item.kind == "slider" { setSlider(slots[i], x: t.x); return }
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.pressed == i, !self.scrolling else { return }
@@ -201,18 +228,20 @@ public final class HomeMode: StripMode {
         guard let start = pressTouch else { return }
         if let i = pressed, slots[i].item.kind == "slider" { setSlider(slots[i], x: t.x); return }
         let inMiddle = start.startX >= middleRange.0 && start.startX <= middleRange.1
-        let overflow = contentWidth - (middleRange.1 - middleRange.0)
-        if inMiddle, overflow > 0, abs(t.dx) > 8 {
-            scrolling = true
+        if inMiddle, scroller.move(t), pressed != nil {
             pressed = nil
-            scrollOffset = max(0, min(overflow, scrollStart - t.dx))
+            presses.cancelAll()
+            longPressWork?.cancel()
         }
     }
 
     public func touchEnded(_ t: StripTouch) {
         longPressWork?.cancel()
+        let wasScrolling = scrolling
+        scroller.end(t)
+        if let i = pressed { presses.release(i) }
         defer { pressed = nil; pressTouch = nil }
-        guard let i = pressed, !longPressFired, !scrolling, let ctx else { return }
+        guard let i = pressed, !longPressFired, !wasScrolling, let ctx else { return }
         let s = slots[i]
         if s.item.kind == "slider" { return }
         if let w = s.widget {
@@ -222,5 +251,5 @@ public final class HomeMode: StripMode {
         }
     }
 
-    public func touchCancelled(_ t: StripTouch) { longPressWork?.cancel(); pressed = nil; pressTouch = nil }
+    public func touchCancelled(_ t: StripTouch) { longPressWork?.cancel(); scroller.end(t); presses.cancelAll(); pressed = nil; pressTouch = nil }
 }

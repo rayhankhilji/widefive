@@ -22,6 +22,7 @@ public final class AmbientMode: StripMode {
     private var drops: [(x: CGFloat, y: CGFloat, speed: CGFloat, len: Int)] = []
     private var catX: CGFloat = -60
     private var t = 0.0
+    private var sceneChanged = -10.0
 
     public init() {}
 
@@ -109,8 +110,10 @@ public final class AmbientMode: StripMode {
                 c.fill(CGRect(x: x, y: y, width: size * 2.5, height: size * 0.6), NSColor(white: 1, alpha: 1 - s.z))
             }
         case "life":
+            let a = c.theme.accent, b = c.theme.accent2
+            let cols = (0..<16).map { a.mix(b, 0.5 - 0.5 * cos(CGFloat($0) / 16 * .pi * 2 + CGFloat(t * 0.6))) }
             for y in 0..<gh { for x in 0..<gw where life[y * gw + x] == 1 {
-                c.fill(CGRect(x: CGFloat(x) * cell, y: CGFloat(y) * cell, width: cell - 0.3, height: cell - 0.3), .hsb(CGFloat(x) / CGFloat(gw) + CGFloat(t * 0.1), 0.8, 1))
+                c.fill(CGRect(x: CGFloat(x) * cell, y: CGFloat(y) * cell, width: cell - 0.3, height: cell - 0.3), cols[(x * 16 / max(1, gw)) % 16])
             } }
         case "fire":
             for y in 0..<gh { for x in 0..<gw {
@@ -133,11 +136,20 @@ public final class AmbientMode: StripMode {
                 }
                 path.addLine(to: CGPoint(x: c.width, y: 0))
                 c.cg.addPath(path)
-                c.cg.setFillColor(NSColor.hsb(0.35 + CGFloat(band) * 0.12 + CGFloat(sin(t * 0.2)) * 0.05, 0.8, 1, 0.28).cgColor)
+                let palette = [c.theme.good, c.theme.accent2, c.theme.accent, c.theme.accent2.mix(c.theme.accent, 0.5)]
+                c.cg.setFillColor(palette[band].withAlphaComponent(0.26 + 0.04 * CGFloat(sin(t * 0.5 + Double(band)))).cgColor)
                 c.cg.fillPath()
             }
         }
-        c.text(scenes[scene], x: c.width - 6, y: 1, size: 7, color: NSColor(white: 1, alpha: 0.35), align: .right)
+        // Scene indicator: caption + dots, plus a quick dip-to-background when the scene changes.
+        let fade = CGFloat(1 - Ease.outCubic((t - sceneChanged) / 0.45))
+        if fade > 0.01 { c.fill(c.bounds, c.theme.background.withAlphaComponent(fade)) }
+        let dotsW = CGFloat(scenes.count) * 6
+        for i in scenes.indices {
+            c.circle(center: CGPoint(x: c.width - 10 - dotsW + CGFloat(i) * 6 + 3, y: 4), radius: i == scene ? 1.6 : 1,
+                     NSColor(white: 1, alpha: i == scene ? 0.8 : 0.3))
+        }
+        c.caption(scenes[scene], x: c.width - 10 - dotsW - 6, y: 0.5, color: NSColor(white: 1, alpha: 0.5 + 0.5 * fade), align: .right)
     }
 
     private func drawNyan(_ c: Canvas) {
@@ -172,9 +184,9 @@ public final class AmbientMode: StripMode {
 
     public func touchEnded(_ t: StripTouch) {
         if abs(t.dx) < 10, t.duration < 0.3, scenes[scene] != "life" || t.x > CGFloat(w) - 80 {
-            scene = (scene + 1) % scenes.count
+            scene = (scene + 1) % scenes.count; sceneChanged = self.t
         } else if abs(t.dx) > 60 {
-            scene = (scene + (t.dx < 0 ? 1 : scenes.count - 1)) % scenes.count
+            scene = (scene + (t.dx < 0 ? 1 : scenes.count - 1)) % scenes.count; sceneChanged = self.t
         }
     }
 }

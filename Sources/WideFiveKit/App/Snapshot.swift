@@ -4,11 +4,13 @@ import AppKit
 public enum Snapshot {
     public static func render(mode: String, seconds: Double = 1.5, width: CGFloat = 1085, scale: CGFloat = 2,
                               script: ((StripController, Double) -> Void)? = nil) -> Data? {
-        let parts = mode.split(separator: ":").map(String.init)
+        let themed = mode.split(separator: "@", maxSplits: 1).map(String.init)
+        let parts = themed[0].split(separator: ":").map(String.init)
         let modeId = parts[0]
         let demo = parts.count > 1 && parts[1] == "demo"
         var cfg = Config.default
         cfg.startMode = modeId
+        if themed.count > 1 { cfg.theme = themed[1] }
         let controller = StripController(config: cfg)
         controller.frontmostChanged(bundleId: "com.microsoft.VSCode", name: "Code")
         controller.switchTo(modeId)
@@ -27,6 +29,7 @@ public enum Snapshot {
         var t = 0.0
         while t < seconds {
             script?(controller, t)
+            controller.step(dt: dt)
             controller.current.update(dt: dt)
             t += dt
             if Int(t * 60) % 60 == 0 { Stats.shared.sample() }

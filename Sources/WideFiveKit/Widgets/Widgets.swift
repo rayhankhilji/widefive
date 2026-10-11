@@ -43,7 +43,7 @@ public enum WidgetFactory {
 // MARK: - Helpers
 
 func tile(_ c: Canvas, _ r: CGRect, pressed: Bool) {
-    c.roundRect(r, radius: 6, fill: pressed ? c.theme.buttonPressed : c.theme.button)
+    c.panel(r, fill: pressed ? c.theme.surfaceHi : c.theme.surface)
 }
 
 func sparkline(_ c: Canvas, _ values: [Double], in r: CGRect, color: NSColor, maxValue: Double? = nil) {
@@ -51,15 +51,26 @@ func sparkline(_ c: Canvas, _ values: [Double], in r: CGRect, color: NSColor, ma
     let m = max(maxValue ?? (values.max() ?? 1), 0.0001)
     let step = r.width / CGFloat(values.count - 1)
     let path = CGMutablePath()
-    path.move(to: CGPoint(x: r.minX, y: r.minY))
     for (i, v) in values.enumerated() {
-        path.addLine(to: CGPoint(x: r.minX + CGFloat(i) * step, y: r.minY + CGFloat(min(v / m, 1)) * r.height))
+        let p = CGPoint(x: r.minX + CGFloat(i) * step, y: r.minY + 1 + CGFloat(min(v / m, 1)) * (r.height - 2))
+        if i == 0 { path.move(to: p) } else { path.addLine(to: p) }
     }
+    let stroke = path.copy()!
     path.addLine(to: CGPoint(x: r.maxX, y: r.minY))
+    path.addLine(to: CGPoint(x: r.minX, y: r.minY))
     path.closeSubpath()
+    c.cg.saveGState()
     c.cg.addPath(path)
-    c.cg.setFillColor(color.withAlphaComponent(0.35).cgColor)
-    c.cg.fillPath()
+    c.cg.clip()
+    c.gradient(r, [color.withAlphaComponent(0.32), color.withAlphaComponent(0.02)])
+    c.cg.restoreGState()
+    c.cg.saveGState()
+    c.cg.addPath(stroke)
+    c.cg.setStrokeColor(color.withAlphaComponent(0.85).cgColor)
+    c.cg.setLineWidth(1)
+    c.cg.setLineJoin(.round)
+    c.cg.strokePath()
+    c.cg.restoreGState()
 }
 
 func meterColor(_ c: Canvas, _ v: Double) -> NSColor { v < 0.5 ? c.theme.good : v < 0.8 ? c.theme.warn : c.theme.bad }
@@ -77,7 +88,7 @@ final class ClockWidget: Widget {
     func width(_ ctx: ModeContext) -> CGFloat { showSeconds ? 70 : 52 }
     func draw(_ c: Canvas, in r: CGRect, pressed: Bool, ctx: ModeContext) {
         tile(c, r, pressed: pressed)
-        c.text(fmt.string(from: Date()), x: r.midX, size: 14, color: c.theme.text, weight: .semibold, mono: true, align: .center)
+        c.text(fmt.string(from: Date()), x: r.midX, size: Metrics.Font.title - 0.5, color: c.theme.text, weight: .semibold, mono: true, align: .center)
     }
     func tap(_ ctx: ModeContext) { ctx.run(Action(open: "com.apple.iCal")) }
 }
@@ -87,7 +98,7 @@ final class DateWidget: Widget {
     func width(_ ctx: ModeContext) -> CGFloat { 84 }
     func draw(_ c: Canvas, in r: CGRect, pressed: Bool, ctx: ModeContext) {
         tile(c, r, pressed: pressed)
-        c.text(fmt.string(from: Date()), x: r.midX, size: 12, color: c.theme.text, align: .center)
+        c.text(fmt.string(from: Date()), x: r.midX, size: Metrics.Font.label + 0.5, color: c.theme.text, weight: .medium, align: .center)
     }
 }
 
@@ -97,8 +108,8 @@ final class CPUWidget: Widget {
         tile(c, r, pressed: pressed)
         let s = Stats.shared
         c.clip(r) { sparkline(c, s.cpuHistory.suffix(30).map { $0 }, in: r.insetBy(dx: 2, dy: 2), color: meterColor(c, s.cpu), maxValue: 1) }
-        c.text("CPU", x: r.minX + 6, size: 9, color: c.theme.dim, weight: .bold)
-        c.text("\(Int(s.cpu * 100))%", x: r.maxX - 6, size: 13, color: c.theme.text, weight: .semibold, mono: true, align: .right)
+        c.caption("CPU", x: r.minX + 7)
+        c.text("\(Int(s.cpu * 100))%", x: r.maxX - 7, size: Metrics.Font.body, color: c.theme.text, weight: .semibold, mono: true, align: .right)
     }
     func tap(_ ctx: ModeContext) { ctx.switchMode("stats") }
 }
@@ -109,9 +120,9 @@ final class RAMWidget: Widget {
         tile(c, r, pressed: pressed)
         let s = Stats.shared
         let frac = s.memTotal > 0 ? s.memUsed / s.memTotal : 0
-        c.roundRect(CGRect(x: r.minX + 4, y: r.minY + 3, width: (r.width - 8) * CGFloat(frac), height: 3), radius: 1.5, fill: meterColor(c, frac))
-        c.text("RAM", x: r.minX + 6, size: 9, color: c.theme.dim, weight: .bold)
-        c.text(Stats.bytes(s.memUsed), x: r.maxX - 6, size: 12, color: c.theme.text, weight: .semibold, mono: true, align: .right)
+        c.meter(CGRect(x: r.minX + 7, y: r.minY + 4, width: r.width - 14, height: 2.5), value: CGFloat(frac), colors: [meterColor(c, frac).withAlphaComponent(0.7), meterColor(c, frac)])
+        c.caption("RAM", x: r.minX + 7)
+        c.text(Stats.bytes(s.memUsed), x: r.maxX - 7, size: Metrics.Font.label + 0.5, color: c.theme.text, weight: .semibold, mono: true, align: .right)
     }
     func tap(_ ctx: ModeContext) { ctx.switchMode("stats") }
 }
@@ -125,12 +136,12 @@ final class BatteryWidget: Widget {
             c.symbol("powerplug.fill", in: r, color: c.theme.dim, pointSize: 12); return
         }
         let body = CGRect(x: r.minX + 6, y: r.midY - 5, width: 20, height: 10)
-        c.roundRect(body, radius: 2.5, fill: .clear, stroke: c.theme.dim, lineWidth: 1)
+        c.roundRect(body, radius: 3, fill: .clear, stroke: c.theme.dim.withAlphaComponent(0.8), lineWidth: 1)
         c.fill(CGRect(x: body.maxX + 1, y: body.midY - 2, width: 1.5, height: 4), c.theme.dim)
         let col = s.charging ? c.theme.good : (b < 0.2 ? c.theme.bad : c.theme.text)
         c.roundRect(CGRect(x: body.minX + 1.5, y: body.minY + 1.5, width: max(1, (body.width - 3) * CGFloat(b)), height: body.height - 3), radius: 1.5, fill: col)
         c.text("\(Int(b * 100))", x: r.maxX - 6, size: 12, color: c.theme.text, weight: .semibold, mono: true, align: .right)
-        if s.charging { c.symbol("bolt.fill", in: body, color: .black, pointSize: 7) }
+        if s.charging { c.symbol("bolt.fill", in: body, color: c.theme.on(col), pointSize: 7) }
     }
 }
 
@@ -188,7 +199,8 @@ final class UptimeWidget: Widget {
         tile(c, r, pressed: pressed)
         let u = Int(Stats.shared.uptime)
         let s = u > 86400 ? "\(u / 86400)d \(u % 86400 / 3600)h" : "\(u / 3600)h \(u % 3600 / 60)m"
-        c.text("⏱ " + s, x: r.midX, size: 11, color: c.theme.text, mono: true, align: .center)
+        c.symbol("clock", in: CGRect(x: r.minX + 3, y: r.minY, width: 18, height: r.height), color: c.theme.dim, pointSize: 10)
+        c.text(s, x: r.maxX - 7, size: Metrics.Font.label, color: c.theme.text, weight: .medium, mono: true, align: .right)
     }
 }
 
@@ -198,7 +210,7 @@ final class WeatherWidget: Widget {
         Weather.shared.refreshIfNeeded()
         tile(c, r, pressed: pressed)
         let s = Weather.shared.summary
-        c.text(s.isEmpty ? "☁︎…" : s, x: r.midX, size: 12, color: c.theme.text, align: .center)
+        c.text(s.isEmpty ? "☁︎ …" : s, x: r.midX, size: Metrics.Font.label + 0.5, color: c.theme.text, weight: .medium, align: .center)
     }
     func tap(_ ctx: ModeContext) { ctx.run(Action(url: "https://wttr.in/\(ctx.config.weatherLocation)")) }
 }
@@ -248,8 +260,7 @@ final class NowPlayingWidget: Widget {
         }
         if np.duration > 0 {
             let p = CGFloat(min(1, np.position / np.duration))
-            c.fill(CGRect(x: x, y: r.minY + 4, width: textW, height: 2), c.theme.dim.withAlphaComponent(0.4))
-            c.fill(CGRect(x: x, y: r.minY + 4, width: textW * p, height: 2), c.theme.accent)
+            c.meter(CGRect(x: x, y: r.minY + 4, width: textW, height: 2), value: p)
         }
     }
     func tap(_ ctx: ModeContext) { SystemControl.media("playpause") }
@@ -280,13 +291,11 @@ public final class PomodoroWidget: Widget {
         }
         let frac = 1 - rem / total(ctx)
         let center = CGPoint(x: r.minX + 14, y: r.midY)
-        c.cg.setStrokeColor(c.theme.dim.withAlphaComponent(0.4).cgColor)
-        c.cg.setLineWidth(2.5)
-        c.cg.addArc(center: center, radius: 8, startAngle: 0, endAngle: .pi * 2, clockwise: false)
-        c.cg.strokePath()
-        c.cg.setStrokeColor((breakMode ? c.theme.good : c.theme.bad).cgColor)
-        c.cg.addArc(center: center, radius: 8, startAngle: .pi / 2, endAngle: .pi / 2 - CGFloat(frac) * .pi * 2, clockwise: true)
-        c.cg.strokePath()
+        let col = breakMode ? c.theme.good : c.theme.bad
+        c.glowing(col, blur: 5, strength: endAt == nil ? 0 : 0.8) {
+            c.ring(center: center, radius: 7.5, width: 2.5, fraction: CGFloat(frac), color: col)
+        }
+        if endAt == nil { c.symbol("play.fill", in: CGRect(x: center.x - 6, y: center.y - 6, width: 12, height: 12), color: c.theme.dim, pointSize: 6) }
         let m = Int(rem) / 60, s = Int(rem) % 60
         c.text(String(format: "%d:%02d", m, s), x: r.maxX - 6, size: 12, color: endAt == nil ? c.theme.dim : c.theme.text, weight: .semibold, mono: true, align: .right)
     }
