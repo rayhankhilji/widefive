@@ -68,7 +68,7 @@ extension RaceGame {
                 pen.rrect(CGRect(x: r.minX + 6, y: r.midY - 5, width: 15, height: 10), 2.5, active ? hue : RCol.white.alpha(0.15))
                 c.rtext(icon, r.minX + 13.5, r.midY - 3.6, 6.4, active ? RCol(0x05070a) : RCol.white.alpha(0.7), .black, align: .center)
                 c.rtext(k == 0 ? "VS BOTS" : "VS FRIEND", r.minX + 26, r.minY + 9.6, 7.6, RCol.white, .heavy)
-                c.rtext(k == 0 ? "5 AI RIVALS" : "SPLIT SCREEN", r.minX + 26, r.minY + 3.6, 4.6, RCol.white.alpha(0.5), .bold)
+                c.rtext(k == 0 ? "\(rivals[0]) AI RIVALS" + (active ? " · TAP +" : "") : "SPLIT · \(rivals[1]) AI" + (active ? " · TAP +" : ""), r.minX + 26, r.minY + 3.6, 4.6, RCol.white.alpha(0.5), .bold)
             case 2:
                 let mini = RaceTrack.preview(trackIdx)
                 let mr = CGRect(x: r.maxX - 62, y: r.minY + 2.5, width: 46, height: 17)

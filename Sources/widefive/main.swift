@@ -19,6 +19,13 @@ if let i = args.firstIndex(of: "--snapshot"), args.count > i + 2 {
     exit(0)
 }
 
+if let i = args.firstIndex(of: "--bench"), args.count > i + 1 {
+    let secs = args.count > i + 2 ? Double(args[i + 2]) ?? 5 : 5
+    let w = args.count > i + 3 ? CGFloat(Double(args[i + 3]) ?? 1004) : 1004
+    let r = Snapshot.bench(mode: args[i + 1], seconds: secs, width: w)
+    print(String(format: "%@: %.2f ms/frame avg, %.2f ms worst", args[i + 1], r.ms, r.worst))
+    exit(0)
+}
 if let i = args.firstIndex(of: "--frames"), args.count > i + 3 {
     _ = NSApplication.shared
     let num: (Int, Double) -> Double = { k, d in args.count > i + k ? Double(args[i + k]) ?? d : d }

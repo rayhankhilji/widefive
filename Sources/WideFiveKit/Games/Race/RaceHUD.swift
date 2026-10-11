@@ -128,11 +128,14 @@ extension RaceGame {
         c.rtext("LIVE", b.minX + head / 2 + 2, 17.5, 5, RCol.red, .black, align: .center)
         pen.circle(b.minX + 6, 20.4, 1.1, RCol.red.alpha(0.6 + 0.4 * CGFloat(sin(clock * 5))))
         c.rtext("\(laps)L", b.minX + head / 2 + 2, 6, 8, RCol.white.alpha(0.6), .heavy, align: .center)
-        let n = CGFloat(racers.count)
-        let cw = (b.width - head - 4) / n
+        // Show a window of cards (min ~62pt each) that keeps the player in view on big grids.
+        let fit = max(1, min(rank.count, Int((b.width - head - 4) / 62)))
+        let mePos = humanIdx.first.flatMap { rank.firstIndex(of: $0) } ?? 0
+        let start = max(0, min(rank.count - fit, mePos - fit / 2))
+        let cw = (b.width - head - 4) / CGFloat(fit)
         let leader = racers[rank[0]]
-        for (pos, i) in rank.enumerated() {
-            let target = CGFloat(pos)
+        for (pos, i) in rank.enumerated() where pos >= start && pos < start + fit {
+            let target = CGFloat(pos - start)
             let cur = boardOrder[i] ?? target
             let nx = RK.approach(cur, target, 9, 1.0 / 60)
             boardOrder[i] = nx
@@ -185,6 +188,8 @@ extension RaceGame {
         }
         if phase == .countdown, lit == 0 {
             c.rtext(theme.name.uppercased(), v.midX, 4, 6, RCol.white.alpha(0.85), .black, align: .center)
+        } else if phase == .countdown, !demo, !KeyCapture.shared.active {
+            c.rtext("HOLD ↑ / W OR TOUCH TO DRIVE  ·  ⌃⌥⌘K LOCKS KEYS", v.midX, 3.5, 5, RCol.white.alpha(0.8), .heavy, align: .center, maxWidth: v.width - 8)
         }
         // lap / finish toast
         if let (msg, at) = lapToast[p] {
@@ -240,13 +245,21 @@ extension RaceGame {
         c.rtext("RESULTS · \(theme.name.uppercased())", left, 20, 5.4, RCol.white.alpha(0.55), .black)
         c.rtext(title, left - slide, 5, 14, tcol, .heavy)
         let startX = left + 112
-        let rw = (width - startX - 92) / CGFloat(rank.count)
-        for (pos, i) in rank.enumerated() {
+        // Big grids: show as many cards as fit (min ~92pt each), always including the human drivers.
+        let avail = width - startX - 92
+        let fit = max(1, min(rank.count, Int(avail / 92)))
+        var shown = Array(rank.enumerated().prefix(fit))
+        for (pos, i) in rank.enumerated() where pos >= fit && racers[i].human != nil {
+            if let drop = shown.lastIndex(where: { racers[$0.element].human == nil }) { shown.remove(at: drop) }
+            shown.append((pos, i))
+        }
+        let rw = avail / CGFloat(shown.count)
+        for (slot, (pos, i)) in shown.enumerated() {
             let o = racers[i]
-            let delay = 0.15 + Double(pos) * 0.07
+            let delay = 0.15 + Double(slot) * 0.07
             let k = RK.easeOutBack(CGFloat(phaseT - delay) / 0.4)
             guard k > 0 else { continue }
-            let r = CGRect(x: startX + CGFloat(pos) * rw, y: 3 - (1 - k) * 10, width: rw - 4, height: 24)
+            let r = CGRect(x: startX + CGFloat(slot) * rw, y: 3 - (1 - k) * 10, width: rw - 4, height: 24)
             let col = o.human.map { accent($0) } ?? RCol(0x9aa0aa)
             pen.rrect(r, 4, (pos == 0 ? RCol.gold : col).alpha(o.human != nil || pos == 0 ? 0.16 : 0.06))
             pen.strokeRR(r.insetBy(dx: 0.5, dy: 0.5), 4, (pos == 0 ? RCol.gold : col).alpha(o.human != nil ? 0.8 : 0.25), 0.8)

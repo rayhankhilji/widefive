@@ -18,9 +18,20 @@ public enum Snapshot {
         return n
     }
 
+    /// Average CPU time per rendered frame: `widefive --bench <mode> [seconds] [width]`.
+    public static func bench(mode: String, seconds: Double, width: CGFloat) -> (ms: Double, worst: Double) {
+        var total = 0.0, worst = 0.0, n = 0
+        var draw: (() -> Void)?
+        _ = render(mode: mode, seconds: seconds, width: width, frame: { _, _ in
+            let t0 = CACurrentMediaTime(); draw?(); let e = CACurrentMediaTime() - t0
+            total += e; worst = max(worst, e); n += 1
+        }, rawDraw: { draw = $0 })
+        return (total / Double(max(1, n)) * 1000, worst * 1000)
+    }
+
     public static func render(mode: String, seconds: Double = 1.5, width: CGFloat = 1085, scale: CGFloat = 2,
                               script: ((StripController, Double) -> Void)? = nil,
-                              frame: ((Double, () -> Data) -> Void)? = nil) -> Data? {
+                              frame: ((Double, () -> Data) -> Void)? = nil, rawDraw: ((@escaping () -> Void) -> Void)? = nil) -> Data? {
         let themed = mode.split(separator: "@", maxSplits: 1).map(String.init)
         let parts = themed[0].split(separator: ":").map(String.init)
         let modeId = parts[0]
@@ -42,6 +53,7 @@ public enum Snapshot {
         // One throwaway frame so modes learn the real strip width before the demo starts.
         controller.render(gc.cgContext, size: size)
         if demo { (controller.current as? DemoStartable)?.startDemo() }
+        rawDraw? { gc.cgContext.clear(CGRect(origin: .zero, size: size)); controller.render(gc.cgContext, size: size) }
         let dt = 1.0 / 60
         var t = 0.0
         while t < seconds {

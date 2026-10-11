@@ -47,6 +47,8 @@ public final class RaceGame: StripMode, DemoStartable {
     var carChangedAt: [Double] = [0, 0]
     var difficulty = 1
     var demo = false
+    /// AI cars on the grid: [vs bots, vs friend]. Tap the selected mode chip to cycle.
+    var rivals = [5, 3]
     var track = RaceTrack(RaceTheme.all[0])
     var racers: [Racer] = []
     var humanIdx: [Int] = []
@@ -121,8 +123,8 @@ public final class RaceGame: StripMode, DemoStartable {
     func startRace() {
         track = RaceTrack(theme)
         let humans = vsFriend ? 2 : 1
-        let bots = vsFriend ? 3 : 5
-        let names = ["VERSA", "NORRIS", "LECLERC", "ALONSO", "PIASTRI"].shuffled()
+        let bots = rivals[vsFriend ? 1 : 0]
+        let names = ["VERSA", "NORRIS", "LECLERC", "ALONSO", "PIASTRI", "HAMILTON", "RUSSELL", "SAINZ", "GASLY", "OCON", "ALBON"].shuffled()
         let base: CGFloat = [0.84, 0.9, 0.96][difficulty]
         racers = []
         let total = humans + bots
@@ -148,6 +150,7 @@ public final class RaceGame: StripMode, DemoStartable {
         finishWait = nil
         particles = []
         boardOrder = [:]
+        if !demo, AXIsProcessTrusted(), !KeyCapture.shared.active { KeyCapture.shared.start() }
         setPhase(.countdown)
     }
 
@@ -211,8 +214,8 @@ public final class RaceGame: StripMode, DemoStartable {
     func pickSetup(_ i: Int) {
         focus = i
         switch i {
-        case 0: vsFriend = false
-        case 1: vsFriend = true
+        case 0: if !vsFriend { cycleRivals() }; vsFriend = false
+        case 1: if vsFriend { cycleRivals() }; vsFriend = true
         case 2: trackIdx = (trackIdx + 1) % RaceTheme.all.count
         case 3:
             sound.toggle()
@@ -223,6 +226,12 @@ public final class RaceGame: StripMode, DemoStartable {
         }
     }
 
+    static let rivalSteps: [[Int]] = [[3, 5, 7, 9, 11], [1, 3, 5, 7, 9]]
+    func cycleRivals() {
+        let m = vsFriend ? 1 : 0, opts = Self.rivalSteps[m]
+        rivals[m] = opts.first { $0 > rivals[m] } ?? opts[0]
+    }
+
     func stepRacer(_ i: Int, _ d: CGFloat) {
         var r = racers[i]
         let spec = r.spec
@@ -231,7 +240,8 @@ public final class RaceGame: StripMode, DemoStartable {
         if let p = r.human, !demo {
             steer = (held(p, "R") ? 1 : 0) - (held(p, "L") ? 1 : 0)
             brake = held(p, "D")
-            gas = held(p, "U") || (!input.usedKeyboard && !brake)
+            let touching = touchHeld[vsFriend ? p : 0].contains { $0 != "F" }
+            gas = held(p, "U") || touching
             wantNitro = held(p, "F")
         } else {
             for (j, o) in racers.enumerated() where j != i {
@@ -354,7 +364,7 @@ public final class RaceGame: StripMode, DemoStartable {
             let L = layout()
             for (p, v) in L.views.enumerated() where t.x >= v.minX && t.x <= v.maxX {
                 let f = (t.x - v.minX) / v.width
-                let b = f < 0.35 ? "L" : f > 0.65 ? "R" : "D"
+                let b = f < 0.35 ? "L" : f > 0.65 ? "R" : "G"
                 touchOwners[t.id] = (p, b); touchHeld[p].insert(b)
             }
             for (p, g) in L.gauges.enumerated() where t.x >= g.minX && t.x <= g.maxX { touchOwners[t.id] = (p, "F"); touchHeld[p].insert("F") }
@@ -364,7 +374,7 @@ public final class RaceGame: StripMode, DemoStartable {
         guard let (p, b) = touchOwners[t.id], b != "F", p < layout().views.count else { return }
         let v = layout().views[p]
         let f = (t.x - v.minX) / v.width
-        let nb = f < 0.35 ? "L" : f > 0.65 ? "R" : "D"
+        let nb = f < 0.35 ? "L" : f > 0.65 ? "R" : "G"
         if nb != b { touchHeld[p].remove(b); touchHeld[p].insert(nb); touchOwners[t.id] = (p, nb) }
     }
     public func touchEnded(_ t: StripTouch) {

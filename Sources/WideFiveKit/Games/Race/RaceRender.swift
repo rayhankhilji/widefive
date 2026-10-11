@@ -6,6 +6,7 @@ extension RaceGame {
 
     static let drawDist = 170
     static let carWorldW: CGFloat = 380
+    static let crowd: [RCol] = [0xff3b30, 0xffd21f, 0xffffff, 0x2f7fe0, 0xf09a1c, 0x3ddc84, 0xe0b090].map { RCol($0).mix(RCol(0x5f6c7d), 0.25) }
     static let sponsors = ["APEX", "VELOCE", "NITRO", "GRIDLINE", "TURBO", "KAPPA", "ORBIT", "FUEL+"]
 
     func fogAmount(_ z: CGFloat) -> CGFloat { pow(RK.clamp((z - 5000) / 29000), 0.8) * (theme.night ? 0.9 : 0.75) }
@@ -285,24 +286,27 @@ extension RaceGame {
             band(0, 0.14, RCol(0xdfe3e8))
             band(0.92, 1, RCol(0x2c3440))
             if ha > 5 {
+                // Crowd dots: bucket by shirt colour and fill each bucket in one call (this was the hottest path).
                 let span = abs(xb - xa)
-                let cols = max(2, Int(span / 1.1))
+                let cols = max(2, min(160, Int(span / 1.1)))
                 let rows = max(3, min(14, Int(ha * 0.72 / 1.2)))
+                let sway = CGFloat(clock)
+                var buckets = [[CGRect]](repeating: [], count: Self.crowd.count)
                 for row in 0..<rows {
                     let ty = 0.18 + 0.7 * CGFloat(row) / CGFloat(rows)
                     for k in 0..<cols {
-                        let t = (CGFloat(k) + 0.5) / CGFloat(cols)
                         let h = RK.hash(idx * 97 + row * 13 + k)
                         guard h > 0.18 else { continue }
+                        let t = (CGFloat(k) + 0.5) / CGFloat(cols)
                         let px = xa + (xb - xa) * t
                         let base = a.y + (b.y - a.y) * t
                         let hh = ha + (hb - ha) * t
-                        let jump: CGFloat = sin(CGFloat(clock) * (6 + h * 5) + h * 40) > 0.8 ? 0.35 : 0
-                        let cc = [RCol(0xff3b30), RCol(0xffd21f), RCol(0xffffff), RCol(0x2f7fe0), RCol(0xf09a1c), RCol(0x3ddc84), RCol(0xe0b090)][Int(h * 70) % 7]
+                        let jump: CGFloat = sin(sway * (6 + h * 5) + h * 40) > 0.8 ? 0.35 : 0
                         let sz = min(0.9, max(0.5, hh * 0.05))
-                        pen.rect(px - sz / 2, base + hh * ty + jump, sz, sz, fc(cc.mix(RCol(0x5f6c7d), 0.25)))
+                        buckets[Int(h * 70) % Self.crowd.count].append(CGRect(x: px - sz / 2, y: base + hh * ty + jump, width: sz, height: sz))
                     }
                 }
+                for (i, rs) in buckets.enumerated() where !rs.isEmpty { pen.set(fc(Self.crowd[i])); c.cg.fill(rs) }
             } else {
                 band(0.2, 0.85, RCol(0x9c8f86))
             }
