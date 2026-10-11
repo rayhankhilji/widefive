@@ -8,9 +8,13 @@ let package = Package(
         .executable(name: "widefive", targets: ["widefive"]),
         .library(name: "WideFiveKit", targets: ["WideFiveKit"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.0"),
+    ],
     targets: [
         .target(
             name: "WideFiveKit",
+            dependencies: [.product(name: "Sparkle", package: "Sparkle")],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("IOKit"),
