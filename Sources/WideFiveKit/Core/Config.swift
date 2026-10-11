@@ -74,7 +74,7 @@ public struct GestureConfig: Codable, Equatable {
     public var threeFingerBrightness: Bool = true
     public var twoFingerTapPlayPause: Bool = true
     public var edgeSwipeLauncher: Bool = true
-    public var flickModes: Bool = true
+    public var flickModes: Bool = false
     public init() {}
 }
 
@@ -91,7 +91,11 @@ public struct Config: Codable, Equatable {
     public var apps: [AppLayout] = []
     public var pomodoroMinutes: Double = 25
     public var weatherLocation: String = ""
-    public var flickOrder: [String] = ["home", "stats", "dock", "clipboard", "ambient"]
+    public var flickOrder: [String] = ["home", "control", "stats", "dock", "clipboard", "ambient"]
+    /// Hide the menu-bar icon (⌃⌥⌘M brings the menu back temporarily).
+    public var hideMenuBarIcon: Bool = false
+    /// Schema version, used to migrate older config files forward.
+    public var version: Int = 1
 
     public init() {}
 
@@ -111,6 +115,8 @@ public struct Config: Codable, Equatable {
         pomodoroMinutes = try c.decodeIfPresent(Double.self, forKey: .pomodoroMinutes) ?? d.pomodoroMinutes
         weatherLocation = try c.decodeIfPresent(String.self, forKey: .weatherLocation) ?? d.weatherLocation
         flickOrder = try c.decodeIfPresent([String].self, forKey: .flickOrder) ?? d.flickOrder
+        hideMenuBarIcon = try c.decodeIfPresent(Bool.self, forKey: .hideMenuBarIcon) ?? d.hideMenuBarIcon
+        version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
     }
 
     public func layout(for bundleId: String?) -> AppLayout? {
@@ -119,6 +125,22 @@ public struct Config: Codable, Equatable {
     }
 
     public static var `default`: Config { DefaultConfig.make() }
+    public static let currentVersion = 2
+
+    /// v1 → v2: adds the Controls button next to the launcher and turns off mode-flicking (it fought with scrolling).
+    public static func migrate(_ old: Config) -> Config {
+        var c = old
+        if c.version < 2 {
+            if !c.leading.contains(where: { $0.action?.mode == "control" }) {
+                let at = c.leading.firstIndex { $0.action?.mode == "launcher" }.map { $0 + 1 } ?? 0
+                c.leading.insert(DefaultConfig.controlButton, at: at)
+            }
+            c.gestures.flickModes = false
+            if !c.flickOrder.contains("control") { c.flickOrder.insert("control", at: min(1, c.flickOrder.count)) }
+        }
+        c.version = currentVersion
+        return c
+    }
 
     public static func decode(_ data: Data) throws -> Config {
         try JSONDecoder().decode(Config.self, from: data)
@@ -154,6 +176,10 @@ public final class ConfigStore {
             let data = try Data(contentsOf: Self.file)
             config = try Config.decode(data)
             lastError = nil
+            if config.version < Config.currentVersion {
+                config = Config.migrate(config)
+                if let out = try? config.encoded() { try? out.write(to: Self.file) }
+            }
         } catch {
             lastError = "config.json: \(error.localizedDescription)"
             NSLog("widefive: \(lastError!) — \(error)")

@@ -23,6 +23,12 @@ public final class StripController {
     private let startTime = CACurrentMediaTime()
 
     public static let exitWidth: CGFloat = 24
+    /// Exit + key-lock buttons shown on the left of every game.
+    public static let gameChromeWidth: CGFloat = 50
+    public private(set) var paused = false
+    /// Asked to toggle the keyboard lock (the app owns the event tap).
+    public var onToggleKeyLock: (() -> Void)?
+    private var lockTouch: Int?
 
     public init(registry: ModeRegistry = .standard(), config: Config = .default) {
         self.registry = registry
@@ -68,7 +74,9 @@ public final class StripController {
         let dt = min(1.0 / 20.0, now - lastTick)
         lastTick = now
         Stats.shared.sampleIfNeeded()
-        if current.isAnimated {
+        if paused {
+            if now - lastRefresh > 0.5 { lastRefresh = now; setNeedsDisplay() }
+        } else if current.isAnimated {
             current.update(dt: dt)
             setNeedsDisplay()
         } else if now - lastRefresh >= current.refreshInterval {
@@ -96,8 +104,17 @@ public final class StripController {
         if let m = registry.mode(id) { activate(m) }
     }
 
+    public func togglePause() {
+        guard current.isGame else { return }
+        paused.toggle()
+        toast(paused ? "⏸ paused — P or tap to resume" : "▶︎ resumed")
+    }
+
     private func activate(_ m: StripMode) {
         current.deactivate()
+        paused = false
+        lockTouch = nil
+        if !m.isGame, KeyCapture.shared.active { KeyCapture.shared.stop() }
         claimed.removeAll()
         exitTouch = nil
         current = m
@@ -147,6 +164,8 @@ public final class StripController {
 
     public func touchBegan(_ t: StripTouch) {
         if current.showsExitButton, t.x < Self.exitWidth { exitTouch = t.id; return }
+        if current.isGame, t.x < Self.gameChromeWidth { lockTouch = t.id; return }
+        if paused { paused = false; setNeedsDisplay(); return }
         if current.allowsGestures, gestures.began(t) {
             // Cancel any in-flight mode touches: the gesture owns the group now.
             for id in claimed { current.touchCancelled(StripTouch(id: id, x: t.x, y: t.y, startX: t.x, startTime: t.time, time: t.time)) }
@@ -159,7 +178,7 @@ public final class StripController {
     }
 
     public func touchMoved(_ t: StripTouch) {
-        if exitTouch == t.id { return }
+        if exitTouch == t.id || lockTouch == t.id { return }
         if current.allowsGestures, gestures.moved(t) { return }
         if claimed.contains(t.id) { current.touchMoved(t) }
         setNeedsDisplay()
@@ -171,6 +190,12 @@ public final class StripController {
             if t.x < Self.exitWidth + 10 { goBack() }
             return
         }
+        if lockTouch == t.id {
+            lockTouch = nil
+            if t.x < Self.gameChromeWidth + 10 { onToggleKeyLock?() }
+            setNeedsDisplay()
+            return
+        }
         let consumedByGesture = current.allowsGestures && gestures.ended(t)
         if claimed.remove(t.id) != nil {
             if consumedByGesture { current.touchCancelled(t) } else { current.touchEnded(t) }
@@ -178,7 +203,10 @@ public final class StripController {
         setNeedsDisplay()
     }
 
-    public func keyDown(_ k: GameKey) { current.keyDown(k) }
+    public func keyDown(_ k: GameKey) {
+        if paused { paused = false; return }
+        current.keyDown(k)
+    }
     public func keyUp(_ k: GameKey) { current.keyUp(k) }
 
     // MARK: Render
@@ -193,6 +221,16 @@ public final class StripController {
             let r = CGRect(x: 0, y: 0, width: Self.exitWidth - 2, height: size.height)
             c.roundRect(r, radius: 6, fill: NSColor(white: exitTouch == nil ? 0.12 : 0.3, alpha: 0.92))
             c.symbol("xmark", in: r, color: .white, pointSize: 11)
+        }
+        if current.isGame {
+            let locked = KeyCapture.shared.active
+            let r = CGRect(x: Self.exitWidth, y: 0, width: Self.gameChromeWidth - Self.exitWidth - 2, height: size.height)
+            c.roundRect(r, radius: 6, fill: locked ? ctx.theme.accent : NSColor(white: lockTouch == nil ? 0.12 : 0.3, alpha: 0.92))
+            c.symbol(locked ? "keyboard.fill" : "keyboard", in: r, color: locked ? .black : .white, pointSize: 11)
+        }
+        if paused {
+            c.fill(c.bounds, NSColor(white: 0, alpha: 0.55))
+            c.text("PAUSED · P or tap to resume", x: size.width / 2, size: 12, color: .white, weight: .heavy, align: .center)
         }
         if let h = hud {
             if now > h.until { hud = nil } else { drawHUD(c, h.icon, h.value) }

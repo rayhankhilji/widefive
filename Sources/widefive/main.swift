@@ -7,7 +7,8 @@ if let i = args.firstIndex(of: "--snapshot"), args.count > i + 2 {
     _ = NSApplication.shared
     let mode = args[i + 1], out = args[i + 2]
     let secs = args.count > i + 3 ? Double(args[i + 3]) ?? 1.5 : 1.5
-    guard let png = Snapshot.render(mode: mode, seconds: secs) else { fputs("render failed\n", stderr); exit(1) }
+    let width = args.count > i + 4 ? CGFloat(Double(args[i + 4]) ?? 1085) : Hardware.shared.touchBarWidth
+    guard let png = Snapshot.render(mode: mode, seconds: secs, width: width) else { fputs("render failed\n", stderr); exit(1) }
     try png.write(to: URL(fileURLWithPath: out))
     print("wrote \(out)")
     exit(0)

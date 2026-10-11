@@ -137,6 +137,51 @@ enum Sprites {
         ".KPPPPPPPPK.",
         "..K.K..K.K..",
     ], ["P": Pal.pink, "K": NSColor(hex: "#222222"), "G": Pal.grey])
+    static let catHappy = Sprite([
+        "..PPPPPPPP..",
+        ".PKPPPPPPKP.",
+        "KPPPGGGGPPPK",
+        "KPPGKGGKGPPK",
+        "KPPGGRRGGPPK",
+        "KPPGGGGGGPPK",
+        ".KPPPPPPPPK.",
+        ".K..K..K..K.",
+    ], ["P": Pal.pink, "K": NSColor(hex: "#222222"), "G": Pal.grey, "R": Pal.red])
+    static let catSleep = Sprite([
+        "............",
+        "..PPPPPPPP..",
+        ".PKPPPPPPKP.",
+        "KPPPGGGGPPPK",
+        "KPPGKKGKKPPK",
+        "KPPGGGGGGPPK",
+        ".KPPPPPPPPK.",
+        "..KKKKKKKK..",
+    ], ["P": Pal.pink, "K": NSColor(hex: "#222222"), "G": Pal.grey])
+    static let bird = Sprite([
+        "..YYYY..",
+        ".YYYWKY.",
+        "WWYYWWYO",
+        "WWWYYYOO",
+        ".YYYYYY.",
+        "..YYYY..",
+    ], ["Y": Pal.yellow, "W": Pal.white, "K": Pal.black, "O": Pal.orange])
+    static let ship = Sprite([
+        "CC........",
+        "CCCC......",
+        ".WWWWWCC..",
+        "RWWWWWWWCC",
+        ".WWWWWCC..",
+        "CCCC......",
+        "CC........",
+    ], ["C": Pal.cyan, "W": NSColor(hex: "#d0d8ff"), "R": Pal.orange])
+    static let foe = Sprite([
+        "...WWW..",
+        ".WWWWWW.",
+        "WWKWWKWW",
+        "WWWWWWWW",
+        ".W.WW.W.",
+        "W......W",
+    ], ["W": Pal.white, "K": Pal.black])
 }
 
 /// Programmatic tile art.

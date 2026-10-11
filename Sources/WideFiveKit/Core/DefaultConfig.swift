@@ -2,10 +2,14 @@ import Foundation
 
 /// Built-in per-app layouts. Users edit ~/.widefive/config.json (generated from this on first launch).
 enum DefaultConfig {
+    static let controlButton = Item.button(nil, "slider.horizontal.3", Action(mode: "control"), color: "#21a6ff")
+
     static func make() -> Config {
         var c = Config()
+        c.version = Config.currentVersion
         c.leading = [
             .button(nil, "square.grid.2x2.fill", Action(mode: "launcher"), color: "#ff2bd6"),
+            controlButton,
             .widget("app"),
         ]
         c.trailing = [

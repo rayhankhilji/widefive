@@ -77,3 +77,27 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual((0..<20).map { _ in a.next(1000) }, (0..<20).map { _ in b.next(1000) })
     }
 }
+
+final class MigrationTests: XCTestCase {
+    func testV1ConfigGainsControlButtonAndLosesFlick() throws {
+        let v1 = try Config.decode(Data(#"{"leading":[{"type":"button","icon":"square.grid.2x2.fill","action":{"mode":"launcher"}}],"gestures":{"enabled":true,"twoFingerVolume":true,"threeFingerBrightness":true,"twoFingerTapPlayPause":true,"edgeSwipeLauncher":true,"flickModes":true}}"#.utf8))
+        XCTAssertEqual(v1.version, 1)
+        let v2 = Config.migrate(v1)
+        XCTAssertEqual(v2.version, Config.currentVersion)
+        XCTAssertEqual(v2.leading.map { $0.action?.mode }, ["launcher", "control"])
+        XCTAssertFalse(v2.gestures.flickModes)
+        XCTAssertEqual(Config.migrate(v2).leading.count, 2)
+    }
+
+    func testDefaultConfigIsCurrent() {
+        XCTAssertEqual(Config.default.version, Config.currentVersion)
+    }
+
+    func testEveryModeIdIsUnique() {
+        let ids = ModeRegistry.standard().modes.map { $0.id }
+        XCTAssertEqual(ids.count, Set(ids).count)
+        for id in ["control", "snake", "pong", "breakout", "flappy", "shooter", "timer", "calc", "emoji", "pet"] {
+            XCTAssertTrue(ids.contains(id), id)
+        }
+    }
+}

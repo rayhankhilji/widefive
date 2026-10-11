@@ -23,6 +23,21 @@ public final class StripView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     public override var intrinsicContentSize: NSSize { NSSize(width: preferredWidth, height: 30) }
+
+    /// When hosted in the real Touch Bar, trust the width it actually gives us.
+    public var learnsWidth = false
+
+    public override func layout() {
+        super.layout()
+        guard learnsWidth, bounds.width > 400, abs(bounds.width - preferredWidth) > 1 else { return }
+        Hardware.shared.learnedActualWidth(bounds.width)
+    }
+
+    public func setPreferredWidth(_ w: CGFloat) {
+        preferredWidth = w
+        invalidateIntrinsicContentSize()
+        needsDisplay = true
+    }
     public override var isFlipped: Bool { false }
     public override var acceptsFirstResponder: Bool { true }
 
@@ -120,6 +135,7 @@ public final class StripView: NSView {
 
     public override func keyDown(with event: NSEvent) {
         if event.keyCode == 53 { controller.goBack(); return } // esc
+        if event.keyCode == 35 { controller.togglePause(); return } // p
         if let k = Self.gameKey(event) { if !event.isARepeat { controller.keyDown(k) } } else { super.keyDown(with: event) }
     }
 

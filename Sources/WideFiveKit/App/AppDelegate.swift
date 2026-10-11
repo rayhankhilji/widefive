@@ -19,12 +19,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self.controller.apply(config: cfg)
             self.presenter?.hideControlStrip = cfg.hideControlStrip
             self.presenter?.replaceEscKey = cfg.replaceEscKey
+            Hardware.shared.overrideWidth(cfg.stripWidth.map { CGFloat($0) })
+            self.presenter?.stripView.setPreferredWidth(Hardware.shared.touchBarWidth)
+            self.statusItem?.isVisible = !cfg.hideMenuBarIcon
             if let e = self.store.lastError { self.controller.toast("⚠️ \(e)") } else { self.controller.toast("✓ config reloaded") }
             self.rebuildMenu()
         }
         store.watch()
 
-        let view = StripView(controller: controller, width: CGFloat(store.config.stripWidth ?? 1085))
+        Hardware.shared.overrideWidth(store.config.stripWidth.map { CGFloat($0) })
+        let view = StripView(controller: controller, width: Hardware.shared.touchBarWidth)
+        view.learnsWidth = store.config.stripWidth == nil
         let p = TouchBarPresenter(stripView: view)
         p.hideControlStrip = store.config.hideControlStrip
         p.replaceEscKey = store.config.replaceEscKey
@@ -32,6 +37,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         p.present()
 
         controller.onModeChange = { [weak self] _ in self?.rebuildMenu() }
+        setupKeyCapture()
         setupStatusItem()
         observeFrontmostApp()
         registerHotKeys()
@@ -71,6 +77,40 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         HotKeys.shared.register("ctrl+alt+cmd+g") { [weak self] in self?.controller.switchTo("plumber") }
         HotKeys.shared.register("ctrl+alt+cmd+p") { [weak self] in self?.togglePreview() }
         HotKeys.shared.register("ctrl+alt+cmd+t") { [weak self] in self?.presenter?.present() }
+        HotKeys.shared.register("ctrl+alt+cmd+k") { [weak self] in self?.toggleKeyLock() }
+        HotKeys.shared.register("ctrl+alt+cmd+c") { [weak self] in self?.controller.switchTo("control") }
+        HotKeys.shared.register("ctrl+alt+cmd+m") { [weak self] in self?.peekMenu() }
+    }
+
+    // MARK: Game key lock
+
+    private func setupKeyCapture() {
+        let kc = KeyCapture.shared
+        kc.onKey = { [weak self] key, down in down ? self?.controller.keyDown(key) : self?.controller.keyUp(key) }
+        kc.onPause = { [weak self] in self?.controller.togglePause() }
+        kc.onExit = { [weak self] in self?.controller.goBack() }
+        kc.onChange = { [weak self] on in
+            self?.controller.toast(on ? "🎮 keys locked to the bar — ⌃⌥⌘K or esc to release" : "⌨️ keys back to your Mac")
+            self?.rebuildMenu()
+        }
+        controller.onToggleKeyLock = { [weak self] in self?.toggleKeyLock() }
+    }
+
+    @objc func toggleKeyLock() {
+        if !KeyCapture.shared.active, !controller.current.isGame { controller.switchTo("plumber") }
+        if !KeyCapture.shared.toggle(), !KeyCapture.shared.active {
+            if !Keys.ensureAccessibility(prompt: false) { controller.toast("Grant Accessibility to widefive to lock keys") }
+        }
+    }
+
+    /// Shows the menu-bar icon for 20s even when it's hidden, so you can still reach settings.
+    private func peekMenu() {
+        statusItem.isVisible = true
+        statusItem.button?.performClick(nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
+            guard let self else { return }
+            self.statusItem.isVisible = !self.store.config.hideMenuBarIcon
+        }
     }
 
     // MARK: Status menu
@@ -78,6 +118,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = NSImage(systemSymbolName: "rectangle.split.3x1.fill", accessibilityDescription: "widefive")
+        statusItem.isVisible = !store.config.hideMenuBarIcon
         rebuildMenu()
     }
 
@@ -94,6 +135,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let header = NSMenuItem(title: "widefive — \(controller.current.title)", action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
+        let hw = NSMenuItem(title: Hardware.shared.summary, action: nil, keyEquivalent: "")
+        hw.isEnabled = false
+        menu.addItem(hw)
         menu.addItem(.separator())
         for m in controller.registry.modes {
             let i = item(m.title, #selector(pickMode(_:)), state: m.id == controller.current.id)
@@ -104,6 +148,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         menu.addItem(item("Show Touch Bar Preview Window", #selector(togglePreview), key: "p"))
         menu.addItem(item("Re-take Touch Bar", #selector(retake)))
+        menu.addItem(item("Lock Keys to Game (⌃⌥⌘K)", #selector(toggleKeyLock), state: KeyCapture.shared.active))
+        menu.addItem(item("Hide Menu-Bar Icon (⌃⌥⌘M shows it)", #selector(toggleMenuIcon), state: store.config.hideMenuBarIcon))
+        let width = NSMenu()
+        width.addItem(item("Auto-detect", #selector(widthAuto), state: store.config.stripWidth == nil))
+        width.addItem(item("Narrower (−10pt)", #selector(widthNarrower)))
+        width.addItem(item("Wider (+10pt)", #selector(widthWider)))
+        let widthItem = NSMenuItem(title: "Strip Width: \(Int(Hardware.shared.touchBarWidth))pt", action: nil, keyEquivalent: "")
+        widthItem.submenu = width
+        menu.addItem(widthItem)
         menu.addItem(item("Hide Control Strip", #selector(toggleControlStrip), state: store.config.hideControlStrip))
         let themes = NSMenu()
         for t in Theme.all {
@@ -141,6 +194,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if let data = try? c.encoded() { try? data.write(to: ConfigStore.file) }
     }
 
+    @objc private func toggleMenuIcon() { mutateConfig { $0.hideMenuBarIcon.toggle() } }
+    @objc private func widthAuto() { mutateConfig { $0.stripWidth = nil } }
+    @objc private func widthNarrower() { mutateConfig { $0.stripWidth = Double(Hardware.shared.touchBarWidth - 10) } }
+    @objc private func widthWider() { mutateConfig { $0.stripWidth = Double(Hardware.shared.touchBarWidth + 10) } }
+
     @objc private func pickTheme(_ sender: NSMenuItem) {
         guard let name = sender.representedObject as? String else { return }
         mutateConfig { $0.theme = name }
@@ -169,13 +227,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     func showPreview() {
         if previewWindow == nil {
             let scale: CGFloat = 1.2
-            let size = NSSize(width: 1085 * scale, height: 30 * scale)
+            let size = NSSize(width: Hardware.shared.touchBarWidth * scale, height: 30 * scale)
             let w = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
             w.title = "widefive — Touch Bar preview  (click = touch · arrows/space = game controls · esc = back)"
             w.contentAspectRatio = size
             w.isReleasedWhenClosed = false
             w.backgroundColor = .black
-            let v = StripView(controller: controller)
+            let v = StripView(controller: controller, width: Hardware.shared.touchBarWidth)
             w.contentView = v
             w.center()
             w.setFrameOrigin(NSPoint(x: w.frame.minX, y: 80))

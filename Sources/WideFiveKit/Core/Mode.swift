@@ -37,6 +37,8 @@ public protocol StripMode: AnyObject {
     var allowsGestures: Bool { get }
     /// Shows the small exit button at the far left (games, fullscreen modes).
     var showsExitButton: Bool { get }
+    /// Games get the key-lock button, P-to-pause and keyboard capture.
+    var isGame: Bool { get }
 
     func activate(_ ctx: ModeContext)
     func deactivate()
@@ -57,6 +59,7 @@ public extension StripMode {
     var refreshInterval: Double { 1.0 }
     var allowsGestures: Bool { true }
     var showsExitButton: Bool { false }
+    var isGame: Bool { false }
     func deactivate() {}
     func update(dt: Double) {}
     func touchBegan(_ t: StripTouch) {}
@@ -80,12 +83,31 @@ public final class ModeRegistry {
         r.register(PlumberGame())
         r.register(DashGame())
         r.register(FlipGame())
+        r.register(SnakeGame())
+        r.register(PongGame())
+        r.register(BreakoutGame())
+        r.register(FlappyGame())
+        r.register(ShooterGame())
+        r.register(ControlMode())
         r.register(PianoMode())
         r.register(VisualizerMode())
         r.register(AmbientMode())
         r.register(ClipboardMode())
         r.register(DockMode())
         r.register(StatsMode())
+        r.register(TimerMode())
+        r.register(CalculatorMode())
+        r.register(EmojiMode())
+        r.register(PetMode())
         return r
     }
 }
+
+extension PlumberGame { public var isGame: Bool { true } }
+extension DashGame { public var isGame: Bool { true } }
+extension FlipGame { public var isGame: Bool { true } }
+extension SnakeGame { public var isGame: Bool { true } }
+extension PongGame { public var isGame: Bool { true } }
+extension BreakoutGame { public var isGame: Bool { true } }
+extension FlappyGame { public var isGame: Bool { true } }
+extension ShooterGame { public var isGame: Bool { true } }

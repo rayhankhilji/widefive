@@ -11,6 +11,7 @@ your stock Touch Bar comes back.
 ![home](docs/shots/home.png)
 ![plumber](docs/shots/plumber.png)
 ![launcher](docs/shots/launcher.png)
+![control](docs/shots/control.png)
 
 ## Run it
 
@@ -41,6 +42,9 @@ modes, themes, "Edit config", "Reload Touch Bar", "Start at login" and Quit.
 | ⌃⌥⌘ G | Tiny Plumber |
 | ⌃⌥⌘ P | toggle preview window |
 | ⌃⌥⌘ T | re-present the Touch Bar (if macOS stole it back) |
+| ⌃⌥⌘ K | lock / unlock the keyboard to the current game |
+| ⌃⌥⌘ C | control bar |
+| ⌃⌥⌘ M | show the menu-bar icon menu (even when hidden) |
 
 ## Modes
 
@@ -51,6 +55,16 @@ modes, themes, "Edit config", "Reload Touch Bar", "Start at login" and Quit.
 | `plumber` | **Tiny Plumber**: Mario-style side-scroller. ◀ ▶ walk, B run, A jump (hold = higher). ? blocks, mushrooms, stars, bricks, goombas, spikies, flagpole, endless generated worlds |
 | `dash` | **Neon Dash**: auto-runner platformer. Tap to jump, tap again to double-jump, stomp bots |
 | `flip` | **Gravity Flip**: tap to flip gravity between floor and ceiling |
+| `snake` | **Snake** across the whole strip |
+| `pong` | **Pong** rotated: your paddle at the bottom, AI at the top, first to 7 |
+| `breakout` | **Breakout** with two rows of bricks |
+| `flappy` | **Flap**: tap to flap through the gaps |
+| `shooter` | **Starstrip**: side-scrolling shooter, pad = up/down, A = fire |
+| `control` | control bar: volume, mute, display brightness, keyboard backlight, media, dark mode, caffeine, screenshot, Mission Control, lock, display sleep |
+| `timer` | stopwatch with laps + 1/3/5/10/25 min countdowns |
+| `calc` | calculator with every key visible at once |
+| `emoji` | tap to type an emoji, recents float to the front |
+| `pet` | pixel cat that speeds up when your CPU is busy, naps when it's idle, tap to pet |
 | `piano` | 2-octave polyphonic synth with multi-touch, 4 waveforms, octave shift |
 | `visualizer` | live mic FFT spectrum across the whole strip |
 | `ambient` | nyan, matrix rain, starfield, game of life, fire, aurora (tap to cycle) |
@@ -58,7 +72,13 @@ modes, themes, "Edit config", "Reload Touch Bar", "Start at login" and Quit.
 | `dock` | running apps, tap to switch, long-press to hide |
 | `stats` | CPU / RAM / network / temp / fan / battery / disk |
 
-The games also take keyboard input when the preview window is focused (arrows, space, shift).
+### Playing games without a window
+
+Every game has a ⌨ button next to the ✕. Tap it (or press ⌃⌥⌘K) to **lock the keyboard to the game**:
+arrows / WASD, space, Z, X and Return go to the game instead of your Mac, and the on-bar game buttons
+disappear. Tap it again (or press Esc) to give the keys back. ⌘/⌃/⌥ shortcuts are never captured.
+**P pauses** any game. Needs Accessibility permission. Without the lock, the keys also work when the
+preview window is focused.
 
 ## Gestures (home mode)
 
@@ -66,7 +86,7 @@ The games also take keyboard input when the preview window is focused (arrows, s
 - three-finger slide → brightness
 - two-finger tap → play/pause
 - swipe in from the left edge → launcher
-- fast one-finger flick → next/previous mode in `flickOrder`
+- fast one-finger flick → next/previous mode in `flickOrder` (off by default since it fights scrolling; set `gestures.flickModes`)
 
 ## Per-app layouts and scripts
 
@@ -129,6 +149,18 @@ public final class HelloMode: StripMode {
 
 Register it in `ModeRegistry.standard()` and it shows up in the launcher.
 
+## Strip size
+
+widefive reads your Mac's model (`hw.model`) and sizes the strip to match: 1004pt on Macs with a
+physical Esc key (2019 16", 2020 13"), 1085pt on 2016–2018 models. The detected model and width are
+shown at the top of the menu. If it's still off, use **Strip Width → Narrower / Wider** or set
+`"stripWidth"` in the config.
+
+## Background mode
+
+widefive has no Dock icon or window. Turn on **Hide Menu-Bar Icon** to remove the menu-bar icon too;
+⌃⌥⌘M opens the menu again.
+
 ## Development
 
 ```bash
@@ -141,4 +173,7 @@ swift run widefive --snapshot plumber shot.png 2   # render any mode headlessly 
 - Private APIs: Apple can change them in any macOS update. If the strip stops showing, hit ⌃⌥⌘T or
   open an issue with your macOS version.
 - Temperature/fan readings use the Intel SMC and show "—" on Apple Silicon.
-- Brightness uses the private DisplayServices framework.
+- Brightness uses the private DisplayServices framework; keyboard backlight uses private CoreBrightness
+  (falls back to the F5/F6 illumination keys).
+- The Intel MacBook Pro keyboard backlight is a single zone: one level for every key. Per-key lighting
+  isn't possible in software on that hardware.

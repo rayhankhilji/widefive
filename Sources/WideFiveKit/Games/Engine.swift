@@ -151,14 +151,18 @@ public final class PadControls {
     public var left = false, right = false, run = false, jump = false
     public var jumpPressed = false   // edge-triggered, cleared by the game
     private var owners: [Int: String] = [:]
-    public var padX: CGFloat = StripController.exitWidth + 2
+    public var padX: CGFloat = StripController.gameChromeWidth + 2
     public let padW: CGFloat = 130
     public let btnW: CGFloat = 64
     public var width: CGFloat = 1085
 
     public init() {}
 
+    /// On-bar buttons only exist while the keyboard isn't locked to the game.
+    public var visible: Bool { !KeyCapture.shared.active }
+
     private func zone(_ x: CGFloat) -> String? {
+        guard visible else { return nil }
         if x >= padX, x < padX + padW { return x < padX + padW / 2 ? "L" : "R" }
         if x > width - btnW { return "A" }
         if x > width - btnW * 2 - 4 { return "B" }
@@ -197,6 +201,7 @@ public final class PadControls {
     }
 
     public func draw(_ c: Canvas) {
+        guard visible else { return }
         let alpha: CGFloat = 0.28
         func btn(_ r: CGRect, _ label: String, _ on: Bool, _ color: NSColor) {
             c.roundRect(r, radius: 7, fill: color.withAlphaComponent(on ? 0.75 : alpha), stroke: NSColor(white: 1, alpha: 0.35), lineWidth: 0.75)
