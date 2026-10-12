@@ -6,11 +6,12 @@ enum DefaultConfig {
 
     /// Full-colour pinned launchers, shown in every app.
     static let pinnedApps: [Item] = [
-        .logo("app:com.anthropic.claudefordesktop|web:claude.ai", fallback: "sparkle", color: "#d97757",
+        .logo("web:claude.ai|app:com.anthropic.claudefordesktop", fallback: "sparkle", color: "#d97757",
               Action(shell: "open -b com.anthropic.claudefordesktop || open -a Claude || open https://claude.ai")),
         .logo("web:outlook.live.com", fallback: "envelope.fill", color: "#0f6cbd", chrome("https://outlook.live.com/mail/")),
         .logo("web:linkedin.com", fallback: "person.crop.square.fill", color: "#0a66c2", chrome("https://www.linkedin.com/feed/")),
         .logo("web:chatgpt.com", fallback: "bubble.left.fill", color: "#10a37f", chrome("https://chatgpt.com/")),
+        .logo("url:https://is1-ssl.mzstatic.com/image/thumb/Purple126/v4/66/fd/1f/66fd1fbd-eacf-2dab-8787-b528aba015f7/AppIcon-0-0-1x_U007emarketing-0-10-0-85-220.png/256x256bb.png|web:classcharts.com", fallback: "graduationcap.fill", color: "#4f46e5", chrome("https://www.classcharts.com/student/login")),
     ]
 
     static let controlButton = Item.button(nil, "slider.horizontal.3", Action(mode: "control"), color: "#21a6ff")
@@ -32,6 +33,8 @@ enum DefaultConfig {
         ]
         c.defaultItems = [
             .widget("nowplaying", width: 170),
+            .widget("weather"),
+            .widget("cpu"),
             .widget("pomodoro"),
             .button(nil, "gamecontroller.fill", Action(mode: "plumber"), color: "#e63946"),
             .button(nil, "waveform", Action(mode: "visualizer")),

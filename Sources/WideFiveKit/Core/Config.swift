@@ -132,7 +132,7 @@ public struct Config: Codable, Equatable {
     }
 
     public static var `default`: Config { DefaultConfig.make() }
-    public static let currentVersion = 3
+    public static let currentVersion = 4
 
     /// v1 → v2: adds the Controls button next to the launcher and turns off mode-flicking (it fought with scrolling).
     public static func migrate(_ old: Config) -> Config {
@@ -149,6 +149,11 @@ public struct Config: Codable, Equatable {
         if c.version < 3 {
             let d = DefaultConfig.make()
             c.leading = d.leading; c.trailing = d.trailing; c.defaultItems = d.defaultItems; c.apps = d.apps
+        }
+        // v4: colour Claude logo, ClassCharts, live widgets in the middle.
+        if c.version < 4 {
+            let d = DefaultConfig.make()
+            c.leading = d.leading; c.defaultItems = d.defaultItems
         }
         c.version = currentVersion
         return c
