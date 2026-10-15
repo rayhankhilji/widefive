@@ -44,7 +44,7 @@ That's it. widefive checks for updates daily and installs them in one click.
   ```
   Add `--preview` for an on-screen strip you can click with the mouse (handy on Macs without a Touch Bar). The first release build takes a few minutes; later builds are quick.
 - **"widefive is damaged and can't be opened":** that's the quarantine flag on unsigned downloads. Run `xattr -dr com.apple.quarantine /Applications/widefive.app` once.
-- **Permissions:** Accessibility (shortcuts, typing, game key lock), Automation (AppleScript buttons, now playing), Microphone (only while the visualizer is open).
+- **Permissions:** Accessibility (shortcuts, typing, game key lock, Dock badges and raising windows for the agent strip), Automation (AppleScript buttons, now playing, finding agent tabs in browsers and terminals), Microphone (only while the visualizer is open).
 
 </details>
 
@@ -98,6 +98,45 @@ The Mario-style one: ? blocks, mushrooms, stars, breakable bricks, enemies to st
 
 **Launcher** (<kbd>⌃⌥⌘Space</kbd>): every mode, one swipe away.
 
+**It watches your coding agents.** Claude Code and Codex in a terminal, Cursor, the Claude and ChatGPT apps, Devin, Grok,
+and web agents in Chrome, Safari, Arc, Brave or Edge (Claude Code on the web, Codex, Devin, Jules, Copilot, Lovable, Bolt…).
+Each one gets a chip on the right of the home bar. The moment one stops and waits for you (a permission prompt, a question,
+a finished turn) its chip pulses red and a toast says who and why. Tap the chip and that terminal tab, app window or browser
+tab comes to the front, Spaces and all. Tap **Agents** in the launcher for the full list with what each one is doing.
+
+<details>
+<summary>How it knows, and how to make it exact</summary>
+
+Three signals, strongest first:
+
+1. **Hooks.** Claude Code, Codex CLI and Cursor can tell widefive directly. Menu → **Coding Agents → Install … Hooks**
+   writes a 20-line shell script to `~/.widefive/bin/widefive-agent-hook` and registers it (Claude Code: `~/.claude/settings.json`
+   `Notification` / `Stop` / `UserPromptSubmit` / `PreToolUse`; Codex: `notify` in `~/.codex/config.toml`; Cursor: `~/.cursor/hooks.json`).
+   Nothing else in those files is touched, and **Remove … Hooks** puts them back. Restart running sessions to pick hooks up.
+2. **Dock badges.** Apps that badge their Dock icon when a reply is ready (ChatGPT, Claude, Cursor…) show as waiting. Needs Accessibility.
+3. **Heuristics.** A terminal agent whose whole process tree has burned no CPU for `idleSeconds` (6 s) is sitting at a prompt.
+   Spinners keep ticking while an agent thinks or runs tools, so this is surprisingly reliable; hooks make it exact.
+   Browser tabs count as waiting when their title matches `attentionTitles` (`(1) …`, "needs your approval", …).
+
+Terminal tabs are found by tty in Terminal.app and iTerm2 (Warp, Ghostty, kitty, VS Code, Cursor get their window raised instead).
+Browser tabs are read and selected over AppleScript, so macOS asks once per browser for Automation permission. Firefox can't be scripted.
+Everything is tuned in `config.json`:
+
+```jsonc
+"agents": {
+  "enabled": true, "toast": true, "sound": false,
+  "idleSeconds": 6, "scanBrowsers": true,
+  "processes": { "myagent": "My Agent" },                     // extra CLIs, by executable or script name
+  "apps": { "com.example.agent": "Example" },                 // extra desktop apps, by bundle id
+  "sites": { "app.example.com/agents": "Example" },           // extra web agents, by URL substring
+  "attentionTitles": []                                       // regexes; empty = the built-in list
+}
+```
+
+Put the chips anywhere with `{ "type": "widget", "name": "agents" }`.
+
+</details>
+
 **Gestures:** slide two fingers for volume and three for brightness. A two-finger tap plays or pauses, and swiping in from the left edge opens the launcher.
 
 ## Themes
@@ -114,7 +153,7 @@ Neon, Graphite Pro, Midnight, Sunset, Nord, Dracula, Paper, Matcha, Synthwave an
 | <img src="docs/media/pet.gif" alt="Pixel pet"><br>**Pixel cat.** Runs when your CPU is busy, naps when it's idle, purrs when you tap it. | <img src="docs/media/stills/piano.png" alt="Piano"><br>**Piano.** Two octaves, multi-touch, four waveforms. |
 | <img src="docs/media/stills/timer.png" alt="Timer"><br>**Timer.** A stopwatch with laps, plus quick countdowns. | <img src="docs/media/stills/stats.png" alt="Stats"><br>**Stats.** CPU, RAM, network, temperature, fan, battery and disk. |
 
-Also: a calculator, an emoji bar that types for you, clipboard history and a strip of running apps.
+Also: a calculator, an emoji bar that types for you, clipboard history, a strip of running apps and the coding-agent list.
 
 ## Hotkeys
 
@@ -167,7 +206,7 @@ Built-in layouts: VS Code/Cursor/Windsurf, Xcode, Terminal/iTerm/Warp/Ghostty, b
 Finder, Slack/Discord, Figma, Zoom/Teams, Final Cut/Logic (passthrough).
 
 Widgets: `clock`, `date`, `cpu`, `ram`, `battery`, `network`, `temp`, `fan`, `disk`, `uptime`,
-`weather`, `app`, `nowplaying`, `pomodoro`.
+`weather`, `app`, `nowplaying`, `pomodoro`, `agents`.
 
 ## Build a new mode
 
@@ -255,5 +294,8 @@ to `Casks/widefive.rb` in the tap and push. Users install with `brew install --c
 - Temperature/fan readings use the Intel SMC and show "—" on Apple Silicon.
 - Brightness uses the private DisplayServices framework; keyboard backlight uses private CoreBrightness
   (falls back to the F5/F6 illumination keys).
+- The agent strip's "waiting" detection is exact with hooks installed (Claude Code, Codex, Cursor) and a CPU/badge/title
+  heuristic for everything else; web agents only count as waiting when their tab title says so. Add patterns under
+  `agents.attentionTitles` for sites that use a different convention.
 - The Intel MacBook Pro keyboard backlight is a single zone: one level for every key. Per-key lighting
   isn't possible in software on that hardware.

@@ -80,6 +80,7 @@ public final class StripController {
         ctx.theme = next
         gestures.config = config.gestures
         Weather.shared.location = config.weatherLocation
+        AgentMonitor.shared.config = config.agents
         setNeedsDisplay()
     }
 

@@ -122,6 +122,7 @@ public final class ModeRegistry {
         r.register(CalculatorMode())
         r.register(EmojiMode())
         r.register(PetMode())
+        r.register(AgentsMode())
         return r
     }
 }
