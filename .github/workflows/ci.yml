@@ -1,0 +1,129 @@
+name: CI
+
+# Build + test on every push and pull request, render the strip headless, build a downloadable widefive.app,
+# and run live checks of the coding-agent monitor against real macOS (notifications, Chrome tabs).
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # build number = commit count
+
+      - name: Use the newest Xcode (default 16.4 / Swift 6.1 is too old)
+        run: |
+          XC="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)"
+          [ -n "$XC" ] && sudo xcode-select -s "$XC/Contents/Developer"
+          swift --version
+
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: spm-ci-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
+
+      - name: Build
+        run: swift build 2>&1 | tee build.log; test "${PIPESTATUS[0]}" -eq 0
+
+      - name: Test
+        run: swift test 2>&1 | tee test.log; test "${PIPESTATUS[0]}" -eq 0
+
+      - name: Render the agents strip headless
+        run: |
+          mkdir -p out
+          swift run widefive --snapshot agents:demo out/agents.png 2 1004
+          swift run widefive --snapshot home:demo out/home.png 1 1004
+          swift run widefive --snapshot agents:demo@paper out/agents-paper.png 2 1004
+          swift run widefive --snapshot agents:demo@graphite out/agents-graphite.png 2 1004
+
+      - name: Build widefive.app (universal, ad-hoc signed)
+        run: |
+          Scripts/build-app.sh
+          ditto -c -k --keepParent build/widefive.app "out/widefive-$(git rev-parse --short HEAD).app.zip"
+
+      - name: Upload the app
+        uses: actions/upload-artifact@v4
+        with:
+          name: widefive-app-${{ github.run_number }}
+          path: out/widefive-*.app.zip
+          if-no-files-found: error
+
+      - name: A scan never blocks on Apple Events (Chrome open, no Automation consent)
+        timeout-minutes: 3
+        run: |
+          ( "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --no-first-run --no-default-browser-check \
+              "https://claude.ai/code" >/dev/null 2>&1 & ) || true
+          sleep 8
+          BIN="$(swift build --show-bin-path)/widefive"
+          start=$(date +%s)
+          perl -e 'alarm shift; exec @ARGV' 40 "$BIN" --agents 0 > out/agents-nonblocking.txt 2>&1; code=$?
+          echo "exit $code after $(( $(date +%s) - start ))s"
+          cat out/agents-nonblocking.txt
+          [ "$code" -eq 0 ] || { echo "::error::agent scan hung or failed (exit $code)"; exit 1; }
+          grep -q "browser com.google.Chrome: automation" out/agents-nonblocking.txt
+
+      - name: Live check — what a notification banner looks like to Accessibility
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          BIN="$(swift build --show-bin-path)/widefive"
+          alarm() { perl -e 'alarm shift; exec @ARGV' "$@"; }
+          # Dismiss any consent alert a previous step left so banners can show.
+          alarm 10 osascript -e 'tell application "System Events" to key code 53' || true
+          alarm 20 osascript -e 'display notification "Claude needs your permission to use Bash" with title "Claude Code" subtitle "fix-login"' || true
+          sleep 1.5
+          screencapture -x out/screen-banner.png || true
+          alarm 30 "$BIN" --ax-dump com.apple.notificationcenterui 2>&1 | tee out/ax-notificationcenter.txt | tail -60 || true
+          # A notification from a real app bundle too (Terminal), in case script notifications are suppressed.
+          alarm 20 osascript -e 'tell application "Terminal" to display notification "Task complete" with title "Codex"' || true
+          sleep 1.5
+          screencapture -x out/screen-banner2.png || true
+          alarm 30 "$BIN" --ax-dump com.apple.notificationcenterui 2>&1 | tee -a out/ax-notificationcenter.txt | tail -60 || true
+
+      - name: Live check — notification banners and Chrome tabs on a real Mac
+        continue-on-error: true
+        timeout-minutes: 6
+        run: |
+          set -x
+          BIN="$(swift build --show-bin-path)/widefive"
+          alarm() { perl -e 'alarm shift; exec @ARGV' "$@"; }
+          mkdir -p ~/.widefive
+          echo '{"agents":{"sites":{"example.com":"Example Agent"}}}' > ~/.widefive/config.json
+          alarm 20 osascript -e 'display notification "Claude needs your permission to use Bash" with title "Claude Code" subtitle "widefive CI"' || true
+          # Chrome's first run on a fresh runner shows a welcome window; launch it without waiting on it.
+          ( "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --no-first-run --no-default-browser-check \
+              "https://example.com/agents" >/dev/null 2>&1 & ) || true
+          sleep 6
+          # A Claude Code session, as Claude writes it: a `claude` process plus its live status file.
+          mkdir -p /tmp/proj-ci/bin ~/.claude/sessions && ln -sf /bin/sleep /tmp/proj-ci/bin/claude
+          (cd /tmp/proj-ci && exec /tmp/proj-ci/bin/claude 600) & CPID=$!
+          sleep 1
+          NOW=$(($(date +%s) * 1000))
+          echo "{\"pid\":$CPID,\"sessionId\":\"ci\",\"cwd\":\"/tmp/proj-ci\",\"kind\":\"interactive\",\"entrypoint\":\"cli\",\"name\":\"proj-ci\",\"startedAt\":$((NOW-60000)),\"status\":\"waiting\",\"waitingFor\":\"permission to run Bash\",\"statusUpdatedAt\":$NOW}" > ~/.claude/sessions/$CPID.json
+          alarm 150 "$BIN" --agents 0 2>&1 | tee out/agents-live.txt || true
+          alarm 20 osascript -e 'display notification "Your task is complete" with title "Codex" subtitle "chatgpt.com"' || true
+          sleep 2
+          alarm 60 "$BIN" --agents 0 2>&1 | tail -25 | tee -a out/agents-live.txt || true
+
+      - name: Upload renders and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-${{ github.run_number }}
+          path: |
+            out/*.png
+            out/*.txt
+            build.log
+            test.log
+          if-no-files-found: ignore

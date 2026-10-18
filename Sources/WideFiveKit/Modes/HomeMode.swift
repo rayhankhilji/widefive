@@ -6,7 +6,10 @@ public final class HomeMode: StripMode {
     public let title = "Home"
     public let icon = "house.fill"
     public var refreshInterval: Double { 0.5 }
-    public var isAnimated: Bool { pressed != nil || hasMarquee || presses.animating || scroller.animating || sliders.values.contains { !$0.settled } }
+    public var isAnimated: Bool {
+        pressed != nil || hasMarquee || presses.animating || scroller.animating || sliders.values.contains { !$0.settled }
+            || slots.contains { $0.widget?.animating == true }
+    }
 
     struct Slot {
         var item: Item
@@ -281,7 +284,7 @@ public final class HomeMode: StripMode {
             return
         }
         if let w = s.widget {
-            if abs(t.dx) > 30 { w.swipe(t.dx, ctx: ctx) } else if s.frame.contains(CGPoint(x: t.x, y: 15)) || abs(t.dx) < 12 { w.tap(ctx) }
+            if abs(t.dx) > 30 { w.swipe(t.dx, ctx: ctx) } else if s.frame.contains(CGPoint(x: t.x, y: 15)) || abs(t.dx) < 12 { w.tap(ctx, at: t.x) }
         } else if let a = s.item.action, abs(t.dx) < 40 {
             ctx.run(a)
         }

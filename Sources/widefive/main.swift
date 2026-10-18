@@ -35,6 +35,34 @@ if let i = args.firstIndex(of: "--frames"), args.count > i + 3 {
     exit(0)
 }
 
+if let i = args.firstIndex(of: "--ax-dump") {
+    // Prints an app's accessibility tree (default: Notification Center) to see what banners look like on this macOS.
+    _ = NSApplication.shared
+    let bid = args.count > i + 1 ? args[i + 1] : "com.apple.notificationcenterui"
+    print(NotificationBanners.dumpTree(bundleId: bid))
+    print("banners read: \(NotificationBanners.current())")
+    exit(0)
+}
+
+if let i = args.firstIndex(of: "--agents") {
+    // Print what the coding-agent monitor sees, then (optionally) watch for changes for N seconds.
+    _ = NSApplication.shared
+    let store = ConfigStore()
+    store.load()
+    AgentMonitor.shared.config = store.config.agents
+    setvbuf(stdout, nil, _IOLBF, 0)
+    AgentMonitor.shared.diagnostics { print($0) }
+    let secs = args.count > i + 1 ? Double(args[i + 1]) ?? 0 : 0
+    if secs > 0 {
+        print("\nwatching for \(Int(secs))s — change something and see what fires…")
+        AgentMonitor.shared.onChange = { for a in AgentMonitor.shared.agents { print("  \(a.name) [\(a.state)] via \(a.signal): \(a.detail)\(a.message.map { " — " + $0 } ?? "")") } }
+        AgentMonitor.shared.onAttention = { a in print("🔔 \(a.name) needs you — \(a.message ?? a.detail)") }
+        AgentMonitor.shared.start()
+        RunLoop.main.run(until: Date().addingTimeInterval(secs))
+    }
+    exit(0)
+}
+
 if args.contains("--print-default-config") {
     print(String(data: try Config.default.encoded(), encoding: .utf8)!)
     exit(0)

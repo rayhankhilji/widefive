@@ -5,18 +5,24 @@ public protocol Widget: AnyObject {
     func width(_ ctx: ModeContext) -> CGFloat
     func draw(_ c: Canvas, in r: CGRect, pressed: Bool, ctx: ModeContext)
     func tap(_ ctx: ModeContext)
+    /// Tap with the strip x position (widgets with several targets inside); defaults to `tap(_:)`.
+    func tap(_ ctx: ModeContext, at x: CGFloat)
     func longPress(_ ctx: ModeContext)
     func swipe(_ dx: CGFloat, ctx: ModeContext)
+    /// True while the widget wants 60 fps (pulsing, scrolling); the home bar otherwise redraws twice a second.
+    var animating: Bool { get }
 }
 
 public extension Widget {
     func tap(_ ctx: ModeContext) {}
+    func tap(_ ctx: ModeContext, at x: CGFloat) { tap(ctx) }
     func longPress(_ ctx: ModeContext) {}
     func swipe(_ dx: CGFloat, ctx: ModeContext) {}
+    var animating: Bool { false }
 }
 
 public enum WidgetFactory {
-    public static let names = ["clock", "date", "cpu", "ram", "battery", "net", "temp", "fan", "nowplaying", "weather", "pomodoro", "disk", "uptime", "app"]
+    public static let names = ["clock", "date", "cpu", "ram", "battery", "net", "temp", "fan", "nowplaying", "weather", "pomodoro", "disk", "uptime", "app", "agents"]
 
     public static func make(_ name: String, width: CGFloat? = nil) -> Widget? {
         switch name.lowercased() {
@@ -35,6 +41,7 @@ public enum WidgetFactory {
         case "disk": return DiskWidget()
         case "uptime": return UptimeWidget()
         case "app": return FrontAppWidget()
+        case "agents", "agent": return AgentsWidget()
         default: return nil
         }
     }

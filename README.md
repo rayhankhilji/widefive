@@ -44,7 +44,7 @@ That's it. widefive checks for updates daily and installs them in one click.
   ```
   Add `--preview` for an on-screen strip you can click with the mouse (handy on Macs without a Touch Bar). The first release build takes a few minutes; later builds are quick.
 - **"widefive is damaged and can't be opened":** that's the quarantine flag on unsigned downloads. Run `xattr -dr com.apple.quarantine /Applications/widefive.app` once.
-- **Permissions:** Accessibility (shortcuts, typing, game key lock), Automation (AppleScript buttons, now playing), Microphone (only while the visualizer is open).
+- **Permissions:** Accessibility (shortcuts, typing, game key lock, Dock badges and raising windows for the agent strip), Automation (AppleScript buttons, now playing, finding agent tabs in browsers and terminals), Microphone (only while the visualizer is open).
 
 </details>
 
@@ -98,6 +98,61 @@ The Mario-style one: ? blocks, mushrooms, stars, breakable bricks, enemies to st
 
 **Launcher** (<kbd>⌃⌥⌘Space</kbd>): every mode, one swipe away.
 
+<img src="docs/media/stills/home-agents.png" width="100%" alt="Home bar with the agents card: Claude Code 2 needs input, Codex 1 done, Claude Code 1 working, +2 more">
+
+**It watches your coding agents.** Claude Code and Codex in a terminal, Cursor, the Claude and ChatGPT apps, Devin, Grok,
+and web agents in Chrome, Safari, Arc, Brave or Edge (Claude Code on the web, Codex, Devin, Jules, Copilot, Lovable, Bolt…).
+Each session gets a numbered cell on the right of the home bar (Claude Code 1, Claude Code 2, Codex 1…) with its real
+icon and a status dot: amber when it needs your input or approval, green when it's done, orange when it hit a rate limit,
+a thin spinner while it works. A toast says who and why the moment one needs you. Tap the chip and that terminal tab, app window or browser
+tab comes to the front, Spaces and all. Tap **Agents** in the launcher for the full list with what each one is doing.
+
+<img src="docs/media/stills/agents.png" width="100%" alt="Agents mode: numbered Claude Code and Codex sessions with project, branch, status and time">
+
+<details>
+<summary>How it knows, and how to make it exact</summary>
+
+Nothing to install or configure. The signals, strongest first:
+
+1. **Claude Code's own status.** Every running Claude Code session — any terminal, the VS Code / Cursor / JetBrains
+   extensions, the Claude desktop app's local Code tab — keeps `~/.claude/sessions/<pid>.json` up to date with whether it
+   is busy, waiting on you (and for what: input, a permission prompt) or done. It's the same file `claude agents` reads,
+   so the bar flips the instant Claude does. Its journal adds what it's doing right now ("Running swift test",
+   "Editing Hero.tsx"), the git branch, and usage limits with their reset time.
+2. **Session journals.** Codex (and older Claude Code) write every turn to disk as they go; a finished reply means done,
+   a tool call with nothing running means waiting for your permission, an approval event means exactly that.
+3. **Notifications.** Anything that posts a macOS notification about an agent — the Claude app when a Code session
+   (local or cloud) finishes, Chrome or Safari for web agents, Cursor, ChatGPT, Codex — is read off the banner through the
+   Accessibility permission and either marks that agent or, for a cloud session with no tab open, adds it to the bar.
+   Tap it and the tab or app comes up.
+4. **Dock badges, process activity and tab titles** for everything else.
+5. **Hooks (optional).** Menu → **Coding Agents → Install … Hooks** adds a belt-and-braces signal for Claude Code, Codex
+   and Cursor; **Remove … Hooks** puts their config back.
+
+If a permission is missing, the bar shows an amber chip; tap it and the Agents mode tells you which one and opens the
+Settings pane. A fresh build is a new app to macOS, so Accessibility has to be switched on again for it.
+
+Terminal tabs are found by tty in Terminal.app and iTerm2 (Warp, Ghostty, kitty, VS Code, Cursor get their window raised instead).
+Browser tabs are read and selected over AppleScript, so macOS asks once per browser for Automation permission. Firefox can't be scripted.
+Everything is tuned in `config.json`:
+
+```jsonc
+"agents": {
+  "enabled": true, "toast": true, "sound": false,
+  "idleSeconds": 6, "scanBrowsers": true,
+  "processes": { "myagent": "My Agent" },                     // extra CLIs, by executable or script name
+  "apps": { "com.example.agent": "Example" },                 // extra desktop apps, by bundle id
+  "sites": { "app.example.com/agents": "Example" },           // extra web agents, by URL substring
+  "attentionTitles": []                                       // regexes; empty = the built-in list
+}
+```
+
+Put the chips anywhere with `{ "type": "widget", "name": "agents" }`. If something isn't showing up, run
+`widefive --agents 30` (or `/Applications/widefive.app/Contents/MacOS/widefive --agents 30`): it prints every agent process,
+journal, tab, badge and banner it can see, then watches for 30 seconds and reports what fires.
+
+</details>
+
 **Gestures:** slide two fingers for volume and three for brightness. A two-finger tap plays or pauses, and swiping in from the left edge opens the launcher.
 
 ## Themes
@@ -114,7 +169,7 @@ Neon, Graphite Pro, Midnight, Sunset, Nord, Dracula, Paper, Matcha, Synthwave an
 | <img src="docs/media/pet.gif" alt="Pixel pet"><br>**Pixel cat.** Runs when your CPU is busy, naps when it's idle, purrs when you tap it. | <img src="docs/media/stills/piano.png" alt="Piano"><br>**Piano.** Two octaves, multi-touch, four waveforms. |
 | <img src="docs/media/stills/timer.png" alt="Timer"><br>**Timer.** A stopwatch with laps, plus quick countdowns. | <img src="docs/media/stills/stats.png" alt="Stats"><br>**Stats.** CPU, RAM, network, temperature, fan, battery and disk. |
 
-Also: a calculator, an emoji bar that types for you, clipboard history and a strip of running apps.
+Also: a calculator, an emoji bar that types for you, clipboard history, a strip of running apps and the coding-agent list.
 
 ## Hotkeys
 
@@ -167,7 +222,7 @@ Built-in layouts: VS Code/Cursor/Windsurf, Xcode, Terminal/iTerm/Warp/Ghostty, b
 Finder, Slack/Discord, Figma, Zoom/Teams, Final Cut/Logic (passthrough).
 
 Widgets: `clock`, `date`, `cpu`, `ram`, `battery`, `network`, `temp`, `fan`, `disk`, `uptime`,
-`weather`, `app`, `nowplaying`, `pomodoro`.
+`weather`, `app`, `nowplaying`, `pomodoro`, `agents`.
 
 ## Build a new mode
 
@@ -197,7 +252,8 @@ widefive reads your Mac's model and sizes the strip to match: 1004 points on Mac
 ## Development
 
 ```bash
-swift test
+swift test                                                    # includes an end-to-end test that fakes a `claude` process + journal
+swift run widefive --agents 30                                # what the coding-agent monitor sees on this Mac, live for 30 s
 swift run widefive --snapshot race:demo shot.png 3 1004       # render any mode to a PNG
 swift run widefive --frames plumber:demo frames/ 4 1004 25 1  # PNG sequence → GIF/MP4 (how the media here was made)
 ```
@@ -255,5 +311,9 @@ to `Casks/widefive.rb` in the tap and push. Users install with `brew install --c
 - Temperature/fan readings use the Intel SMC and show "—" on Apple Silicon.
 - Brightness uses the private DisplayServices framework; keyboard backlight uses private CoreBrightness
   (falls back to the F5/F6 illumination keys).
+- The agent strip is exact for local Claude Code (its live status files) and Codex (its journals). Cloud sessions on
+  claude.ai/code are picked up from the notifications Claude and your browser post, so keep those allowed (Focus modes
+  hide banners). The rest is CPU/badge/title heuristics. Keep notifications allowed for your browser and agent apps
+  (Focus modes hide banners), and add patterns under `agents.attentionTitles` for sites with their own title convention.
 - The Intel MacBook Pro keyboard backlight is a single zone: one level for every key. Per-key lighting
   isn't possible in software on that hardware.

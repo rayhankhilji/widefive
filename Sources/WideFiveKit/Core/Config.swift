@@ -37,7 +37,7 @@ public struct Item: Codable, Equatable {
     public var width: Double?
     public var action: Action?
     public var longPress: Action?
-    /// widget name: clock, date, cpu, ram, battery, net, temp, fan, nowplaying, weather, pomodoro, disk, uptime, app
+    /// widget name: clock, date, cpu, ram, battery, net, temp, fan, nowplaying, weather, pomodoro, disk, uptime, app, agents
     /// slider target: volume, brightness
     public var name: String?
     /// Full-colour logo instead of the SF Symbol: "app:<bundle id>" or "web:<domain>", fallbacks joined with "|".
@@ -85,6 +85,43 @@ public struct GestureConfig: Codable, Equatable {
     public init() {}
 }
 
+/// Coding-agent monitor (the `agents` widget + Agents mode). See README → "Coding agents on the bar".
+public struct AgentsConfig: Codable, Equatable {
+    public var enabled: Bool = true
+    /// Show a toast on the bar the moment an agent starts waiting for you.
+    public var toast: Bool = true
+    /// Also play a short sound.
+    public var sound: Bool = false
+    /// Seconds a terminal agent's process tree must sit at ~0% CPU before it counts as waiting (agents without hooks).
+    public var idleSeconds: Double = 6
+    /// Look through Chrome/Safari/Arc/Brave/Edge tabs for web agents (asks for Automation permission once per browser).
+    public var scanBrowsers: Bool = true
+    /// Extra terminal agents: executable or script name → display name, e.g. { "myagent": "My Agent" }.
+    public var processes: [String: String] = [:]
+    /// Extra desktop apps: bundle id → display name.
+    public var apps: [String: String] = [:]
+    /// Extra web agents: URL substring → display name, e.g. { "app.example.com/agents": "Example" }.
+    public var sites: [String: String] = [:]
+    /// Regular expressions; a browser tab whose title matches counts as needing you. Empty = built-in list.
+    public var attentionTitles: [String] = []
+
+    public init() {}
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = AgentsConfig()
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? d.enabled
+        toast = try c.decodeIfPresent(Bool.self, forKey: .toast) ?? d.toast
+        sound = try c.decodeIfPresent(Bool.self, forKey: .sound) ?? d.sound
+        idleSeconds = try c.decodeIfPresent(Double.self, forKey: .idleSeconds) ?? d.idleSeconds
+        scanBrowsers = try c.decodeIfPresent(Bool.self, forKey: .scanBrowsers) ?? d.scanBrowsers
+        processes = try c.decodeIfPresent([String: String].self, forKey: .processes) ?? [:]
+        apps = try c.decodeIfPresent([String: String].self, forKey: .apps) ?? [:]
+        sites = try c.decodeIfPresent([String: String].self, forKey: .sites) ?? [:]
+        attentionTitles = try c.decodeIfPresent([String].self, forKey: .attentionTitles) ?? []
+    }
+}
+
 public struct Config: Codable, Equatable {
     public var theme: String = "neon"
     public var hideControlStrip: Bool = true
@@ -101,6 +138,7 @@ public struct Config: Codable, Equatable {
     public var flickOrder: [String] = ["home", "control", "stats", "dock", "clipboard", "ambient"]
     /// Hide the menu-bar icon (⌃⌥⌘M brings the menu back temporarily).
     public var hideMenuBarIcon: Bool = false
+    public var agents: AgentsConfig = AgentsConfig()
     /// Schema version, used to migrate older config files forward.
     public var version: Int = 1
 
@@ -123,6 +161,7 @@ public struct Config: Codable, Equatable {
         weatherLocation = try c.decodeIfPresent(String.self, forKey: .weatherLocation) ?? d.weatherLocation
         flickOrder = try c.decodeIfPresent([String].self, forKey: .flickOrder) ?? d.flickOrder
         hideMenuBarIcon = try c.decodeIfPresent(Bool.self, forKey: .hideMenuBarIcon) ?? d.hideMenuBarIcon
+        agents = try c.decodeIfPresent(AgentsConfig.self, forKey: .agents) ?? d.agents
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
     }
 
@@ -132,7 +171,7 @@ public struct Config: Codable, Equatable {
     }
 
     public static var `default`: Config { DefaultConfig.make() }
-    public static let currentVersion = 4
+    public static let currentVersion = 5
 
     /// v1 → v2: adds the Controls button next to the launcher and turns off mode-flicking (it fought with scrolling).
     public static func migrate(_ old: Config) -> Config {
@@ -155,8 +194,18 @@ public struct Config: Codable, Equatable {
             let d = DefaultConfig.make()
             c.leading = d.leading; c.defaultItems = d.defaultItems
         }
+        // v5: coding-agent strip in the trailing group (Claude Code, Codex, Cursor, web agents… tap to bring to front).
+        if c.version < 5, !c.hasWidget("agents") {
+            let at = c.trailing.firstIndex { $0.kind == "widget" } ?? c.trailing.count
+            c.trailing.insert(.widget("agents"), at: at)
+        }
         c.version = currentVersion
         return c
+    }
+
+    /// True when any group of the home bar contains the named widget.
+    public func hasWidget(_ name: String) -> Bool {
+        (leading + trailing + defaultItems + apps.flatMap { $0.items }).contains { $0.kind == "widget" && $0.name?.lowercased() == name }
     }
 
     public static func decode(_ data: Data) throws -> Config {

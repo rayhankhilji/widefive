@@ -35,7 +35,7 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>widefive listens to the microphone only while the Visualizer mode is open, to draw a live spectrum on the Touch Bar. Audio never leaves your Mac.</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>widefive runs the AppleScript actions you put on your Touch Bar buttons and reads what's playing in Music or Spotify.</string>
+	<string>widefive runs the AppleScript actions you put on your Touch Bar buttons, reads what's playing in Music or Spotify, and looks through your browser and terminal tabs to find coding agents and bring the right one to the front when you tap it.</string>
 	<key>SUFeedURL</key>
 	<string>__FEED_URL__</string>
 	<key>SUPublicEDKey</key>

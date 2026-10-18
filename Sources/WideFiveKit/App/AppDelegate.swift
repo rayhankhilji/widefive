@@ -55,6 +55,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         observeFrontmostApp()
         registerHotKeys()
         setupUpdater()
+        setupAgents()
         if let e = store.lastError { controller.toast("⚠️ \(e)") }
         if openPreviewOnLaunch || !TouchBarPresenter.isSupported { showPreview() }
     }
@@ -134,6 +135,72 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // MARK: Coding agents
+
+    private func setupAgents() {
+        let m = AgentMonitor.shared
+        m.config = store.config.agents
+        m.onChange = { [weak self] in
+            self?.controller.setNeedsDisplay()
+            self?.rebuildMenu()
+        }
+        m.onAttention = { [weak self] a in
+            guard let self else { return }
+            let cfg = self.store.config.agents
+            if cfg.toast { self.controller.toast("\(a.displayName) — \(a.stateLabel.lowercased()) · \(a.statusLine)") }
+            if cfg.sound { NSSound(named: "Pop")?.play() }
+        }
+        m.start()
+    }
+
+    private func agentsMenu() -> NSMenu {
+        let menu = NSMenu()
+        let agents = AgentMonitor.shared.agents
+        if agents.isEmpty {
+            let none = NSMenuItem(title: AgentMonitor.shared.config.enabled ? "No coding agents running" : "Agent monitor is off", action: nil, keyEquivalent: "")
+            none.isEnabled = false
+            menu.addItem(none)
+        }
+        for a in agents {
+            let i = item("\(a.displayName)  ·  \(a.stateLabel)  ·  \(a.whereLine)", #selector(pickAgent(_:)))
+            i.representedObject = a.id
+            i.image = NSImage(systemSymbolName: a.state == .working ? "circle.dotted" : a.alerting ? "circle.fill" : "circle", accessibilityDescription: nil)
+            i.toolTip = a.statusLine
+            menu.addItem(i)
+        }
+        menu.addItem(.separator())
+        menu.addItem(item("Show Agents on the Bar", #selector(showAgentsMode)))
+        menu.addItem(.separator())
+        for kind in AgentHooks.Kind.allCases {
+            let installed = AgentHooks.isInstalled(kind)
+            let i = item("\(installed ? "Remove" : "Install") \(kind.title) Hooks (exact “needs you” alerts)", #selector(toggleHook(_:)), state: installed)
+            i.representedObject = kind.rawValue
+            menu.addItem(i)
+        }
+        menu.addItem(.separator())
+        menu.addItem(item("Monitor Coding Agents", #selector(toggleAgentsEnabled), state: store.config.agents.enabled))
+        menu.addItem(item("Toast When an Agent Needs You", #selector(toggleAgentToast), state: store.config.agents.toast))
+        menu.addItem(item("Play a Sound Too", #selector(toggleAgentSound), state: store.config.agents.sound))
+        menu.addItem(item("Look Through Browser Tabs", #selector(toggleAgentBrowsers), state: store.config.agents.scanBrowsers))
+        return menu
+    }
+
+    @objc private func pickAgent(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String, let a = AgentMonitor.shared.agents.first(where: { $0.id == id }) else { return }
+        AgentMonitor.shared.focus(a)
+    }
+    @objc private func showAgentsMode() { controller.switchTo("agents") }
+    @objc private func toggleHook(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let kind = AgentHooks.Kind(rawValue: raw) else { return }
+        let note = AgentHooks.isInstalled(kind) ? AgentHooks.uninstall(kind) : AgentHooks.install(kind)
+        controller.toast(note)
+        rebuildMenu()
+    }
+    @objc private func toggleAgentsEnabled() { mutateConfig { $0.agents.enabled.toggle() } }
+    @objc private func toggleAgentToast() { mutateConfig { $0.agents.toast.toggle() } }
+    @objc private func toggleAgentSound() { mutateConfig { $0.agents.sound.toggle() } }
+    @objc private func toggleAgentBrowsers() { mutateConfig { $0.agents.scanBrowsers.toggle() } }
+
     // MARK: Updates
 
     private func setupUpdater() {
@@ -203,6 +270,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             i.image = NSImage(systemSymbolName: m.icon, accessibilityDescription: nil)
             menu.addItem(i)
         }
+        menu.addItem(.separator())
+        let waiting = AgentMonitor.shared.waiting.count
+        let agentsItem = NSMenuItem(title: waiting > 0 ? "Coding Agents — \(waiting) need\(waiting == 1 ? "s" : "") you" : "Coding Agents", action: nil, keyEquivalent: "")
+        agentsItem.image = NSImage(systemSymbolName: "rectangle.stack", accessibilityDescription: nil)
+        agentsItem.submenu = agentsMenu()
+        menu.addItem(agentsItem)
         menu.addItem(.separator())
         menu.addItem(item("Show Touch Bar Preview Window", #selector(togglePreview), key: "p"))
         menu.addItem(item("Re-take Touch Bar", #selector(retake)))

@@ -28,6 +28,7 @@ enum DefaultConfig {
             .quick("brightness"),
             .quick("keyboard"),
             .quick("volume"),
+            .widget("agents"),
             .widget("battery"),
             .widget("clock"),
         ]
