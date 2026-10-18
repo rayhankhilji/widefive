@@ -160,10 +160,12 @@ public final class AgentMonitor {
         let agentApps = apps.compactMap { a in AgentCatalog.appSpec(bundleId: a.bundleIdentifier, name: a.localizedName, extra: config.apps).map { "\($0.name) (\(a.bundleIdentifier ?? "?"))" } }
         out.append("agent apps running: \(agentApps)")
         out.append("dock badges: \(AppScripting.dockBadges())")
+        // macOS can make even the no-prompt permission check wait while a consent prompt is on screen; never hang on it.
         for b in AgentCatalog.browsers where AppScripting.isRunning(b.bundleId) {
-            out.append("browser \(b.bundleId): automation \(AppScripting.permission(b.bundleId))")
+            let p = Self.within(3) { AppScripting.permission(b.bundleId) }
+            out.append("browser \(b.bundleId): automation \(p.map { "\($0)" } ?? "check timed out (a consent prompt is probably waiting on screen)")")
         }
-        let tabs = config.scanBrowsers ? AppScripting.browserTabs() : []
+        let tabs = config.scanBrowsers ? (Self.within(12) { AppScripting.browserTabs() } ?? []) : []
         cachedTabs = tabs
         out.append("browser tabs: \(tabs.count)")
         for t in tabs where AgentCatalog.siteSpec(url: t.url, extra: config.sites) != nil { out.append("  \(t.bundleId) w\(t.window) t\(t.index) \(t.url) — \(t.title)") }
@@ -384,6 +386,21 @@ public final class AgentMonitor {
         let alive = Set(procs.map { $0.pid })
         cpuSamples = cpuSamples.filter { alive.contains($0.key) }
         return out
+    }
+
+    /// Runs `work` on a background thread and gives up waiting after `seconds` (the work itself carries on).
+    static func within<T>(_ seconds: Double, _ work: @escaping () -> T) -> T? {
+        let sem = DispatchSemaphore(value: 0)
+        let box = NSLock()
+        var result: T?
+        DispatchQueue.global(qos: .userInitiated).async {
+            let r = work()
+            box.lock(); result = r; box.unlock()
+            sem.signal()
+        }
+        guard sem.wait(timeout: .now() + seconds) == .success else { return nil }
+        box.lock(); defer { box.unlock() }
+        return result
     }
 
     private func refreshTabs() {

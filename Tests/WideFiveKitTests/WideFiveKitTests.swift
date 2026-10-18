@@ -564,3 +564,12 @@ final class BannerAgentTests: XCTestCase {
         XCTAssertNil(AgentMonitor.agentFromBanner(NotificationBanners.Banner(id: "n2", app: "Mail", bundleId: "com.apple.mail", text: "Mail · Lunch?"), state: .done, tabs: []))
     }
 }
+
+final class TimeBoxTests: XCTestCase {
+    func testWithinReturnsFastWorkAndGivesUpOnSlowWork() {
+        XCTAssertEqual(AgentMonitor.within(2) { 41 + 1 }, 42)
+        let t0 = Date()
+        XCTAssertNil(AgentMonitor.within(0.3) { () -> Int in Thread.sleep(forTimeInterval: 3); return 1 })
+        XCTAssertLessThan(Date().timeIntervalSince(t0), 1.5)
+    }
+}
