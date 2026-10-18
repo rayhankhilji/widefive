@@ -189,7 +189,7 @@ public enum AgentCatalog {
         ("cursor.com/agents", Spec(key: "cursor-web", name: "Cursor Agent", color: "#8b5cf6", logo: "web:cursor.com", icon: "cursorarrow")),
         ("cursor.com/dashboard", Spec(key: "cursor-web", name: "Cursor Agent", color: "#8b5cf6", logo: "web:cursor.com", icon: "cursorarrow")),
         ("github.com/copilot", Spec(key: "copilot-web", name: "Copilot", color: "#8957e5", logo: "web:github.com", icon: "airplane")),
-        ("jules.google", Spec(key: "jules", name: "Jules", color: "#4285f4", logo: "web:jules.google.com", icon: "j.circle")),
+        ("jules.google.com", Spec(key: "jules", name: "Jules", color: "#4285f4", logo: "web:jules.google.com", icon: "j.circle")),
         ("gemini.google.com", Spec(key: "gemini-web", name: "Gemini", color: "#4285f4", logo: "web:gemini.google.com", icon: "diamond")),
         ("grok.com", Spec(key: "grok-web", name: "Grok", color: "#000000", logo: "web:grok.com", icon: "x.circle")),
         ("replit.com", Spec(key: "replit", name: "Replit", color: "#f26207", logo: "web:replit.com", icon: "r.circle")),
