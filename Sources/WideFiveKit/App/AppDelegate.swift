@@ -147,10 +147,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         m.onAttention = { [weak self] a in
             guard let self else { return }
             let cfg = self.store.config.agents
-            if cfg.toast {
-                let verb = a.state == .done ? "✅ \(a.name) is done" : "🔔 \(a.name) needs you"
-                self.controller.toast("\(verb)  ·  \(a.message ?? a.detail)")
-            }
+            if cfg.toast { self.controller.toast("\(a.displayName) — \(a.stateLabel.lowercased()) · \(a.statusLine)") }
             if cfg.sound { NSSound(named: "Pop")?.play() }
         }
         m.start()
@@ -165,11 +162,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(none)
         }
         for a in agents {
-            let mark = a.state == .waiting ? "🔴 " : a.state == .done ? "✅ " : ""
-            let i = item("\(mark)\(a.name) — \(a.detail)  (\(a.stateLabel))", #selector(pickAgent(_:)))
+            let i = item("\(a.displayName)  ·  \(a.stateLabel)  ·  \(a.whereLine)", #selector(pickAgent(_:)))
             i.representedObject = a.id
-            i.image = NSImage(systemSymbolName: a.icon, accessibilityDescription: nil)
-            i.toolTip = a.message
+            i.image = NSImage(systemSymbolName: a.state == .working ? "circle.dotted" : a.alerting ? "circle.fill" : "circle", accessibilityDescription: nil)
+            i.toolTip = a.statusLine
             menu.addItem(i)
         }
         menu.addItem(.separator())
@@ -277,7 +273,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         let waiting = AgentMonitor.shared.waiting.count
         let agentsItem = NSMenuItem(title: waiting > 0 ? "Coding Agents — \(waiting) need\(waiting == 1 ? "s" : "") you" : "Coding Agents", action: nil, keyEquivalent: "")
-        agentsItem.image = NSImage(systemSymbolName: waiting > 0 ? "bell.badge.fill" : "person.2.wave.2", accessibilityDescription: nil)
+        agentsItem.image = NSImage(systemSymbolName: "rectangle.stack", accessibilityDescription: nil)
         agentsItem.submenu = agentsMenu()
         menu.addItem(agentsItem)
         menu.addItem(.separator())

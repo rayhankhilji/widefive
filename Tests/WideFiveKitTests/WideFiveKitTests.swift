@@ -311,7 +311,7 @@ final class AgentTranscriptTests: XCTestCase {
         XCTAssertEqual(v.phase, .turnDone)
         XCTAssertEqual(v.lastText, "Logger refactored.")
         let approval = done + [#"{"timestamp":"2026-10-18T10:00:20.000Z","type":"event_msg","payload":{"type":"exec_approval_request","call_id":"c2","command":["rm","-rf","x"]}}"#]
-        XCTAssertEqual(AgentTranscripts.codexVerdict(lines: approval, file: file)?.phase, .needsApproval("exec approval request"))
+        XCTAssertEqual(AgentTranscripts.codexVerdict(lines: approval, file: file)?.phase, .needsApproval("Approve: rm -rf x"))
     }
 
     func testTailLinesReadsOnlyCompleteTrailingLines() throws {
@@ -354,7 +354,18 @@ final class AgentTranscriptTests: XCTestCase {
 
 final class BannerMatchTests: XCTestCase {
     func testBannerMatchesTheRightAgent() {
-        let agents = AgentMonitor.demoList()
+        func agent(_ id: String, _ kind: Agent.Kind, _ name: String, _ detail: String, host: String?, logo: String?) -> Agent {
+            Agent(id: id, kind: kind, name: name, detail: detail, state: .working, color: "#000", logo: logo, icon: "x", hostBundleId: host,
+                  focus: .app(bundleId: host ?? "x", window: nil), signal: "cpu")
+        }
+        let agents = [
+            agent("d1", .terminal, "Claude Code", "widefive · Terminal", host: "com.apple.Terminal", logo: "web:claude.ai"),
+            agent("d2", .web, "Codex", "Add agent monitor — Codex", host: "com.google.Chrome", logo: "web:chatgpt.com"),
+            agent("d3", .terminal, "Gemini CLI", "api · iTerm2", host: "com.googlecode.iterm2", logo: "web:gemini.google.com"),
+            agent("d4", .app, "Cursor", "landing-page", host: "com.todesktop.230313mzl4w4u92", logo: "web:cursor.com"),
+            agent("d5", .web, "Claude Code", "Claude Code", host: "com.google.Chrome", logo: "web:claude.ai"),
+            agent("d6", .app, "ChatGPT", "ChatGPT", host: "com.openai.chat", logo: "web:chatgpt.com"),
+        ]
         let hosts = ["d1": "Terminal", "d2": "Google Chrome", "d3": "iTerm2", "d4": "Cursor", "d5": "Google Chrome", "d6": "ChatGPT"]
         func m(_ app: String?, _ text: String, bundle: String? = nil) -> String? {
             AgentMonitor.match(banner: NotificationBanners.Banner(id: "1", app: app, bundleId: bundle, text: text), agents: agents, hostNames: hosts).map { agents[$0].id }
@@ -571,5 +582,82 @@ final class TimeBoxTests: XCTestCase {
         let t0 = Date()
         XCTAssertNil(AgentMonitor.within(0.3) { () -> Int in Thread.sleep(forTimeInterval: 3); return 1 })
         XCTAssertLessThan(Date().timeIntervalSince(t0), 1.5)
+    }
+}
+
+final class AgentDetailTests: XCTestCase {
+    let file = URL(fileURLWithPath: "/tmp/x.jsonl")
+
+    func testToolsInPlainWords() {
+        XCTAssertEqual(AgentTranscripts.describeTool("Bash", input: ["command": "swift test --parallel\necho done"]), "Running swift test --parallel")
+        XCTAssertEqual(AgentTranscripts.describeTool("Edit", input: ["file_path": "/Users/me/app/Sources/Hero.tsx"]), "Editing Hero.tsx")
+        XCTAssertEqual(AgentTranscripts.describeTool("Read", input: ["file_path": "/a/b/README.md"]), "Reading README.md")
+        XCTAssertEqual(AgentTranscripts.describeTool("Grep", input: ["pattern": "TODO"]), "Searching “TODO”")
+        XCTAssertEqual(AgentTranscripts.describeTool("exec_command", input: ["command": ["bash", "-lc", "npm test"]]), "Running npm test")
+        XCTAssertEqual(AgentTranscripts.describeTool("exec_command", input: ["cmd": "cargo build"]), "Running cargo build")
+        XCTAssertEqual(AgentTranscripts.describeTool("Task", input: ["description": "Find the bug"]), "Subagent: Find the bug")
+        XCTAssertEqual(AgentTranscripts.describeTool("mcp__github__create_pr", input: [:]), "Using create pr")
+    }
+
+    func testLimitsAndErrors() {
+        XCTAssertEqual(AgentTranscripts.classifyProblem("5-hour limit reached ∙ resets 3pm"), .limited(resets: "resets 3pm"))
+        XCTAssertEqual(AgentTranscripts.classifyProblem("You've hit your usage limit. Try again in 2 hours."), .limited(resets: "Try again in 2 hours"))
+        XCTAssertEqual(AgentTranscripts.classifyProblem("API Error: 429 rate_limit_error"), .limited(resets: nil))
+        if case .limited(let r) = AgentTranscripts.classifyProblem("Claude AI usage limit reached|1792339200") { XCTAssertTrue(r?.hasPrefix("resets ") == true, r ?? "nil") }
+        else { XCTFail("epoch form not recognised") }
+        XCTAssertEqual(AgentTranscripts.classifyProblem("API Error: 500 Internal server error"), .error("API Error: 500 Internal server error"))
+    }
+
+    func testClaudeJournalActivityLimitAndBranch() throws {
+        let running = [
+            #"{"type":"user","timestamp":"2026-10-18T10:00:00Z","gitBranch":"agent-strip","message":{"role":"user","content":"run the tests"}}"#,
+            #"{"type":"assistant","timestamp":"2026-10-18T10:00:02Z","gitBranch":"agent-strip","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"swift test"}}]}}"#,
+        ]
+        let v = try XCTUnwrap(AgentTranscripts.claudeVerdict(lines: running, file: file))
+        XCTAssertEqual(v.activity, "Running swift test")
+        XCTAssertEqual(v.branch, "agent-strip")
+        let limited = running + [
+            #"{"type":"user","timestamp":"2026-10-18T10:00:05Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}"#,
+            #"{"type":"assistant","timestamp":"2026-10-18T10:00:06Z","isApiErrorMessage":true,"message":{"id":"m2","role":"assistant","content":[{"type":"text","text":"5-hour limit reached ∙ resets 3pm"}]}}"#,
+        ]
+        let l = try XCTUnwrap(AgentTranscripts.claudeVerdict(lines: limited, file: file))
+        XCTAssertEqual(l.problem, .limited(resets: "resets 3pm"))
+        XCTAssertNil(l.lastText) // the error isn't mistaken for Claude's last reply
+    }
+
+    func testCodexActivityAndError() throws {
+        let lines = [
+            #"{"timestamp":"2026-10-18T10:00:00Z","type":"turn_context","payload":{"cwd":"/a","git":{"branch":"main"}}}"#,
+            #"{"timestamp":"2026-10-18T10:00:01Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"npm test\"}","call_id":"c1"}}"#,
+        ]
+        let v = try XCTUnwrap(AgentTranscripts.codexVerdict(lines: lines, file: file))
+        XCTAssertEqual(v.activity, "Running npm test")
+        XCTAssertEqual(v.branch, "main")
+        let err = lines + [#"{"timestamp":"2026-10-18T10:00:09Z","type":"event_msg","payload":{"type":"error","message":"You've hit your usage limit. Try again in 3 hours."}}"#]
+        XCTAssertEqual(try XCTUnwrap(AgentTranscripts.codexVerdict(lines: err, file: file)).problem, .limited(resets: "Try again in 3 hours"))
+    }
+
+    func testSessionsAreNumberedPerAgentAndKeepTheirNumbers() {
+        func a(_ id: String, _ name: String, _ ago: Double) -> Agent {
+            Agent(id: id, kind: .terminal, name: name, detail: "", state: .working, since: Date().addingTimeInterval(-ago), color: "#000", icon: "x",
+                  focus: .url("x"), signal: "session")
+        }
+        let m = AgentMonitor()
+        var list = [a("p3", "Claude Code", 10), a("p1", "Claude Code", 300), a("c1", "Codex", 50), a("p2", "Claude Code", 100)]
+        m.number(&list)
+        let n = Dictionary(uniqueKeysWithValues: list.map { ($0.id, $0.number) })
+        XCTAssertEqual(n["p1"], 1); XCTAssertEqual(n["p2"], 2); XCTAssertEqual(n["p3"], 3); XCTAssertEqual(n["c1"], 1)
+        // Session 1 ends: the others keep 2 and 3, and a new one takes the free 1.
+        var next = [a("p3", "Claude Code", 10), a("p2", "Claude Code", 100), a("p4", "Claude Code", 1)]
+        m.number(&next)
+        let n2 = Dictionary(uniqueKeysWithValues: next.map { ($0.id, $0.number) })
+        XCTAssertEqual(n2["p2"], 2); XCTAssertEqual(n2["p3"], 3); XCTAssertEqual(n2["p4"], 1)
+        XCTAssertEqual(next.first { $0.id == "p4" }?.displayName, "Claude Code 1")
+    }
+
+    func testMarks() {
+        XCTAssertEqual(Agent.Mark.for(name: "Claude Code", appBundleId: nil), .claudeCode)
+        XCTAssertEqual(Agent.Mark.for(name: "Codex", appBundleId: nil), .codex)
+        XCTAssertEqual(Agent.Mark.for(name: "Gemini CLI", appBundleId: nil), .monogram("G"))
     }
 }

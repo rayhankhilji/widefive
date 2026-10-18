@@ -1,15 +1,18 @@
 import AppKit
 
-/// Every coding agent on the Mac as a row: logo, name, project/tab, and whether it's working or waiting for you.
-/// Tap → bring its window/tab to the front. Long-press → mark as seen (stops the pulsing without switching).
+/// Every coding agent on the Mac as a quiet list of cards: mark, "Claude Code 2", project · branch, and one status line
+/// ("Needs input · Approve: swift test", "Running npm test", "Done · All tests pass"). Tap a card to bring that
+/// session to the front; long-press to mark it seen.
 public final class AgentsMode: StripMode, DemoStartable {
     public let id = "agents"
     public let title = "Agents"
-    public let icon = "person.2.wave.2"
+    public let icon = "rectangle.stack"
     public var refreshInterval: Double { 0.5 }
     public var showsExitButton: Bool { true }
     public var allowsGestures: Bool { false }
-    public var isAnimated: Bool { scroller.animating || presses.animating || agents.contains { $0.needsYou } || age < 0.8 }
+    public var isAnimated: Bool {
+        scroller.animating || presses.animating || age < 0.4 || agents.contains { $0.state == .working || $0.state == .waiting }
+    }
 
     private var ctx: ModeContext?
     private var agents: [Agent] = []
@@ -20,6 +23,10 @@ public final class AgentsMode: StripMode, DemoStartable {
     private var work: DispatchWorkItem?
     private var longFired = false
     private var age = 0.0
+
+    static let markSize: CGFloat = 16
+    static let nameSize: CGFloat = 11
+    static let metaSize: CGFloat = 10
 
     public init() {}
 
@@ -44,81 +51,82 @@ public final class AgentsMode: StripMode, DemoStartable {
         agents = AgentMonitor.shared.agents
     }
 
-    private func rowWidth(_ a: Agent) -> CGFloat {
-        let name = Canvas.measure(a.name, size: Metrics.Font.label, weight: .semibold)
-        let sub = Canvas.measure(subtitle(a), size: Metrics.Font.caption + 0.5)
-        let pill = pillWidth(a)
-        return min(300, 30 + max(name, sub) + 10 + pill + 8)
+    // MARK: Layout
+
+    private func statusParts(_ a: Agent) -> (String, String?) {
+        let label = a.stateLabel
+        let line = a.statusLine
+        if a.state == .working { return (line, nil) }
+        if line == label || line.isEmpty { return (label, nil) }
+        return (label, line)
     }
 
-    private func subtitle(_ a: Agent) -> String {
-        if a.needsYou, let m = a.message, !m.isEmpty { return m }
-        return a.detail
+    private func cardWidth(_ a: Agent) -> CGFloat {
+        let name = Canvas.measure(a.displayName, size: Self.nameSize, weight: .semibold)
+        let place = Canvas.measure(a.whereLine, size: Self.metaSize)
+        let (head, tail) = statusParts(a)
+        let status = Canvas.measure(head, size: Self.metaSize, weight: .medium) + (tail.map { Canvas.measure(" · " + $0, size: Self.metaSize) } ?? 0) + 11
+        let time = Canvas.measure(AgentStyle.elapsed(since: a.since), size: 9.5, mono: true)
+        let text = max(name + 6 + min(place, 120), status)
+        return min(340, max(200, 10 + Self.markSize + 9 + text + 12 + time + 10))
     }
 
-    private func pillText(_ a: Agent) -> String { a.stateLabel }
-
-    private func pillWidth(_ a: Agent) -> CGFloat { Canvas.measure(pillText(a), size: 8, weight: .bold) + 14 + (a.state == .working ? 14 : 0) }
+    // MARK: Drawing
 
     public func draw(_ c: Canvas) {
         let theme = c.theme
         let x0 = Metrics.contentX
         frames = []
-        if agents.isEmpty, let hint = AgentMonitor.shared.hint {
-            let r = CGRect(x: x0, y: 1.5, width: min(c.width - x0 - 4, Canvas.measure(hint.text, size: Metrics.Font.body, weight: .medium) + 44), height: c.height - 3)
-            frames.append(("hint", r))
-            c.button(r, style: .tinted(theme.warn), pressed: presses.amount("hint")) { _ in
-                c.symbol("exclamationmark.triangle.fill", in: CGRect(x: r.minX + 6, y: r.minY, width: 16, height: r.height), color: theme.warn, pointSize: 10)
-                c.text(hint.text, x: r.minX + 28, size: Metrics.Font.body, color: theme.text, weight: .medium, maxWidth: r.width - 34)
-            }
-            return
-        }
-        if agents.isEmpty {
-            let r = CGRect(x: x0, y: 1.5, width: 26, height: c.height - 3)
-            c.panel(r)
-            c.symbol("person.2.wave.2", in: r, color: theme.accent, pointSize: Metrics.iconSmall)
-            let msg = AgentMonitor.shared.config.enabled ? "No coding agents running" : "Agent monitor is off (config → agents.enabled)"
-            c.text(msg, x: r.maxX + 10, size: Metrics.Font.body, color: theme.text, weight: .medium)
-            let tw = Canvas.measure(msg, size: Metrics.Font.body, weight: .medium)
-            c.caption("Claude Code · Codex · Cursor · ChatGPT · Devin · web agents in Chrome & Safari", x: r.maxX + 22 + tw, maxWidth: c.width - (r.maxX + 26 + tw))
-            return
-        }
-        let waiting = agents.filter { $0.needsYou }.count
-        let blocked = agents.filter { $0.state == .waiting }.count
-        let finished = waiting - blocked
-        let summary: String
-        if blocked > 0, finished > 0 { summary = "\(blocked) need you · \(finished) done" }
-        else if blocked > 0 { summary = "\(blocked) need\(blocked == 1 ? "s" : "") you" }
-        else if finished > 0 { summary = "\(finished) done" }
-        else { summary = "\(agents.count) running" }
-        let summaryW = Canvas.measure(summary, size: Metrics.Font.caption, weight: .bold) + 4
-        let pulse = CGFloat(0.5 + 0.5 * sin(c.time * 5))
-        c.caption(summary, x: x0, color: waiting > 0 ? (blocked > 0 ? theme.bad : theme.good).mix(theme.text, 0.3 * (1 - pulse)) : theme.dim)
-        let listX = x0 + summaryW + Metrics.groupGap
-        var widths = agents.map(rowWidth)
         let hint = AgentMonitor.shared.hint
-        if let hint { widths.append(min(320, Canvas.measure(hint.text, size: Metrics.Font.caption + 0.5) + 40)) }
-        let total = widths.reduce(0) { $0 + $1 + Metrics.gap }
+
+        if agents.isEmpty {
+            if let hint {
+                let w = min(c.width - x0 - 8, Canvas.measure(hint.text, size: 11, weight: .medium) + 40)
+                let r = CGRect(x: x0, y: 2, width: w, height: c.height - 4)
+                frames.append(("hint", r))
+                drawHint(c, hint, r)
+                return
+            }
+            c.text("No coding agents running", x: x0 + 2, size: 11.5, color: theme.text.withAlphaComponent(0.85), weight: .medium)
+            let w = Canvas.measure("No coding agents running", size: 11.5, weight: .medium)
+            c.text("Claude Code, Codex, Cursor and web agents show up here on their own.", x: x0 + w + 14, size: 10.5, color: theme.dim,
+                   maxWidth: c.width - x0 - w - 20)
+            return
+        }
+
+        // Header: a plain count, the way a list would title itself.
+        let blocked = agents.filter { $0.state == .waiting }.count
+        let finished = agents.filter { $0.state == .done }.count
+        var summary = "\(agents.count) \(agents.count == 1 ? "session" : "sessions")"
+        if blocked > 0 { summary = "\(blocked) need\(blocked == 1 ? "s" : "") input" } else if finished > 0 { summary = "\(finished) done" }
+        c.text("Agents", x: x0 + 2, y: 15, size: 11, color: theme.text, weight: .semibold)
+        c.text(summary, x: x0 + 2, y: 3.5, size: 9.5, color: blocked > 0 ? AgentStyle.amber : theme.dim, weight: .medium)
+        let headerW = max(Canvas.measure("Agents", size: 11, weight: .semibold), Canvas.measure(summary, size: 9.5, weight: .medium)) + 14
+
+        let listX = x0 + headerW
+        var widths = agents.map(cardWidth)
+        if let hint { widths.append(min(320, Canvas.measure(hint.text, size: 10) + 40)) }
+        let gap: CGFloat = 6
+        let total = widths.reduce(0) { $0 + $1 + gap }
         scroller.maxOffset = max(0, total - (c.width - listX))
         let off = scroller.offset
         let view = CGRect(x: listX - 2, y: 0, width: c.width - listX + 2, height: c.height)
+        let appear = CGFloat(Ease.outCubic(age / 0.35))
         c.clip(view) {
-            c.fadeEdges(view, left: off > 1 ? 20 : 0, right: off < scroller.maxOffset - 1 ? 30 : 0) {
-                var x = listX - off
-                for (i, a) in agents.enumerated() {
-                    let w = widths[i]
-                    let r = CGRect(x: x, y: 1.5, width: w, height: c.height - 3)
-                    frames.append((a.id, r))
-                    if r.maxX > view.minX, r.minX < view.maxX {
-                        let e = CGFloat(Ease.outCubic((age - Double(i) * 0.04) / 0.45))
-                        c.faded(e) { c.translated(0, -(1 - e) * 10) { drawRow(c, a, r, pulse: pulse) } }
+            c.fadeEdges(view, left: off > 1 ? 16 : 0, right: off < scroller.maxOffset - 1 ? 24 : 0) {
+                c.faded(appear) {
+                    var x = listX - off
+                    for (i, a) in agents.enumerated() {
+                        let r = CGRect(x: x, y: 2, width: widths[i], height: c.height - 4)
+                        frames.append((a.id, r))
+                        if r.maxX > view.minX, r.minX < view.maxX { drawCard(c, a, r) }
+                        x += widths[i] + gap
                     }
-                    x += w + Metrics.gap
-                }
-                if let hint {
-                    let r = CGRect(x: x, y: 1.5, width: widths[agents.count], height: c.height - 3)
-                    frames.append(("hint", r))
-                    drawHint(c, hint, r)
+                    if let hint {
+                        let r = CGRect(x: x, y: 2, width: widths[agents.count], height: c.height - 4)
+                        frames.append(("hint", r))
+                        drawHint(c, hint, r)
+                    }
                 }
             }
         }
@@ -126,67 +134,60 @@ public final class AgentsMode: StripMode, DemoStartable {
             let visible = c.width - listX
             let bw = max(24, visible * visible / (visible + scroller.maxOffset))
             let bx = listX + max(0, min(1, off / scroller.maxOffset)) * (visible - bw)
-            c.roundRect(CGRect(x: bx, y: 0.5, width: bw, height: 1.5), radius: 0.75, fill: theme.accent.withAlphaComponent(scroller.animating ? 0.75 : 0.28))
+            c.roundRect(CGRect(x: bx, y: 0.5, width: bw, height: 1), radius: 0.5, fill: theme.text.withAlphaComponent(scroller.animating ? 0.35 : 0.12))
         }
     }
 
-    private func drawRow(_ c: Canvas, _ a: Agent, _ r: CGRect, pulse: CGFloat) {
+    private func drawCard(_ c: Canvas, _ a: Agent, _ r: CGRect) {
         let theme = c.theme
-        let brand = theme.tint(NSColor(hex: a.color))
-        let alert = a.state == .done ? theme.good : theme.bad
-        let style: ButtonStyle = a.needsYou ? .tinted(alert) : .plain
         let p = presses.amount(a.id)
-        let draw = {
-            c.button(r, style: style, pressed: p) { fg in
-                let side: CGFloat = 18
-                let icon = CGRect(x: r.minX + 5, y: r.midY - side / 2, width: side, height: side)
-                if let spec = a.logo, let logo = LogoCache.shared.logo(spec) {
-                    c.image(logo.image, in: icon, radius: logo.isAppIcon ? 0 : side * 0.24)
-                } else {
-                    c.roundRect(icon, radius: side * 0.24, fill: brand)
-                    c.symbol(a.icon, in: icon, color: theme.on(brand), pointSize: 9)
-                }
-                let pillW = self.pillWidth(a)
-                let textX = icon.maxX + 7
-                let textW = r.maxX - 8 - pillW - textX - 4
-                c.text(a.name, x: textX, y: r.midY - 1, size: Metrics.Font.label, color: a.needsYou ? theme.text : fg, weight: .semibold, maxWidth: textW)
-                c.text(self.subtitle(a), x: textX, y: r.minY + 1.5, size: Metrics.Font.caption + 0.5, color: a.needsYou ? theme.text.withAlphaComponent(0.85) : theme.dim, maxWidth: textW)
-                let pill = CGRect(x: r.maxX - 6 - pillW, y: r.midY - 6.5, width: pillW, height: 13)
-                let col: NSColor
-                switch a.state {
-                case .waiting: col = theme.bad
-                case .done: col = theme.good
-                case .working: col = theme.accent2
-                case .idle: col = theme.dim
-                }
-                if a.needsYou {
-                    c.glowing(col, blur: 5, strength: 0.4 + 0.6 * pulse) { c.roundRect(pill, radius: 6.5, fill: col) }
-                } else {
-                    c.roundRect(pill, radius: 6.5, fill: col.withAlphaComponent(theme.isLight ? 0.18 : 0.22))
-                }
-                if a.state == .working {
-                    // Three tiny dots marching inside the pill.
-                    for k in 0..<3 {
-                        let ph = CGFloat(0.5 + 0.5 * sin(c.time * 4 - Double(k) * 0.9))
-                        c.circle(center: CGPoint(x: pill.minX + 6 + CGFloat(k) * 4, y: pill.midY), radius: 1 + 0.5 * ph, col.withAlphaComponent(0.4 + 0.6 * ph))
-                    }
-                    c.text(self.pillText(a), x: pill.minX + 20, y: pill.minY + 2, size: 8, color: col, weight: .bold)
-                } else {
-                    c.text(self.pillText(a), x: pill.midX, y: pill.minY + 2, size: 8, color: a.needsYou ? theme.on(col) : col, weight: .bold, align: .center)
-                }
+        c.scaled(1 - 0.025 * p, around: CGPoint(x: r.midX, y: r.midY)) {
+            AgentStyle.card(c, r, pressed: p)
+            if a.alerting {
+                // A thin edge in the status colour: the only colour on a card besides its dot.
+                c.roundRect(CGRect(x: r.minX + 0.5, y: r.minY + 5, width: 2, height: r.height - 10), radius: 1, fill: AgentStyle.color(a.state, theme))
+            }
+            let dim = a.state == .idle
+            let markRect = CGRect(x: r.minX + 10, y: r.midY - Self.markSize / 2, width: Self.markSize, height: Self.markSize)
+            AgentStyle.mark(c, a.mark, in: markRect, alpha: dim ? 0.5 : 1)
+
+            let textX = markRect.maxX + 9
+            let time = AgentStyle.elapsed(since: a.since)
+            let timeW = Canvas.measure(time, size: 9.5, mono: true)
+            let right = r.maxX - 10
+            let textW = right - timeW - 10 - textX
+
+            // Line 1: "Claude Code 2  widefive · main"                         "4m"
+            let nameColor = theme.text.withAlphaComponent(dim ? 0.55 : 0.95)
+            let nw = c.text(a.displayName, x: textX, y: 14.5, size: Self.nameSize, color: nameColor, weight: .semibold, maxWidth: textW)
+            if nw + 6 < textW {
+                c.text(a.whereLine, x: textX + nw + 6, y: 15, size: Self.metaSize, color: theme.dim.withAlphaComponent(dim ? 0.6 : 0.9),
+                       maxWidth: textW - nw - 6)
+            }
+            c.text(time, x: right, y: 15, size: 9.5, color: theme.dim.withAlphaComponent(0.8), mono: true, align: .right)
+
+            // Line 2: "● Needs input · Approve: swift test"
+            let lineY: CGFloat = 3.5
+            AgentStyle.status(c, a.state, at: CGPoint(x: textX + 3, y: lineY + 6.5), size: 6)
+            let (head, tail) = statusParts(a)
+            let sx = textX + 11
+            let headColor = a.alerting ? AgentStyle.color(a.state, theme) : theme.text.withAlphaComponent(dim ? 0.5 : 0.75)
+            let hw = c.text(head, x: sx, y: lineY, size: Self.metaSize, color: headColor, weight: .medium, maxWidth: right - sx)
+            if let tail, sx + hw + 4 < right {
+                c.text(" · " + tail, x: sx + hw, y: lineY, size: Self.metaSize, color: theme.dim, maxWidth: right - sx - hw)
             }
         }
-        if a.needsYou { c.glowing(alert, blur: 10, strength: 0.3 + 0.4 * pulse, draw) } else { draw() }
     }
 
     private func drawHint(_ c: Canvas, _ hint: AgentMonitor.Hint, _ r: CGRect) {
         let theme = c.theme
-        c.button(r, style: .tinted(theme.warn), pressed: presses.amount("hint")) { _ in
-            c.symbol("exclamationmark.triangle.fill", in: CGRect(x: r.minX + 5, y: r.minY, width: 16, height: r.height), color: theme.warn, pointSize: 9.5)
-            c.text("Fix detection", x: r.minX + 25, y: r.midY - 1, size: Metrics.Font.label, color: theme.text, weight: .semibold, maxWidth: r.width - 30)
-            c.text(hint.text, x: r.minX + 25, y: r.minY + 1.5, size: Metrics.Font.caption + 0.5, color: theme.dim, maxWidth: r.width - 30)
-        }
+        AgentStyle.card(c, r, pressed: presses.amount("hint"))
+        c.circle(center: CGPoint(x: r.minX + 12, y: r.midY), radius: 3, AgentStyle.amber)
+        c.text("Finish setup", x: r.minX + 22, y: 14.5, size: 11, color: theme.text, weight: .semibold, maxWidth: r.width - 30)
+        c.text(hint.text, x: r.minX + 22, y: 3.5, size: 10, color: theme.dim, maxWidth: r.width - 30)
     }
+
+    // MARK: Touch
 
     private func hit(_ x: CGFloat) -> String? { frames.first { $0.1.minX <= x && x <= $0.1.maxX }?.0 }
 

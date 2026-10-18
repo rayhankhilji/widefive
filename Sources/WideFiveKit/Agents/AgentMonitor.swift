@@ -267,7 +267,11 @@ public final class AgentMonitor {
                 signal = "session"
                 (state, message) = ClaudeSessions.state(of: session)
                 since = session.statusUpdatedAt ?? wall
-                if state == .done, let last = verdict?.lastText, verdict?.phase == .turnDone { message = last }
+                if state == .done, let last = verdict?.lastText, verdict?.phase == .turnDone, verdict?.problem == nil { message = last }
+                if state == .waiting, session.waitingFor == nil || session.waitingFor == "input needed",
+                   case .toolPending = verdict?.phase, let act = verdict?.activity {
+                    message = "Approve: " + act.replacingOccurrences(of: "Running ", with: "")
+                }
                 strong.insert(id)
             } else if let hook, hook.time.timeIntervalSince1970 >= p.startTime - 1 {
                 signal = "hook"
@@ -286,13 +290,25 @@ public final class AgentMonitor {
                     if resumed, quiet < 1 { state = .working } else { state = .done; message = v.lastText ?? "Done — your turn" }
                 case .toolPending(let tool):
                     let toolRunning = busy || (children[pid] ?? []).contains { (table[$0]?.startTime ?? 0) >= v.at.timeIntervalSince1970 - 1 }
-                    if toolRunning || quiet < 2 { state = .working; message = "Running \(tool)" }
-                    else { state = .waiting; message = "Waiting for your permission: \(tool)" }
+                    if toolRunning || quiet < 2 { state = .working }
+                    else { state = .waiting; message = "Approve: " + (v.activity ?? tool).replacingOccurrences(of: "Running ", with: "") }
                 case .needsApproval(let what):
-                    state = .waiting; message = "Needs your approval (\(what))"
+                    state = .waiting; message = what
                 }
                 strong.insert(id)
             }
+            // A turn that ended on a usage limit or an API error says so, whichever signal noticed the turn ended.
+            if let problem = verdict?.problem, state == .done || state == .idle || signal == "cpu" {
+                switch problem {
+                case .limited(let resets):
+                    state = .limited
+                    message = resets.map { "Usage limit · \($0)" } ?? "Usage limit reached"
+                case .error(let text):
+                    state = .failed
+                    message = text
+                }
+            }
+            let activity = state == .working ? (verdict?.activity ?? "Working") : nil
             // Without an exact signal, a process that has done nothing for a long while is waiting on something.
             if session == nil, state == .working, quiet >= max(cfg.idleSeconds * 5, 30) { state = .waiting; signal = "cpu"; message = message ?? "No activity for a while" }
 
@@ -317,9 +333,14 @@ public final class AgentMonitor {
                 // A background session has no window: open one attached to it.
                 focus = .command("claude attach \(s.sessionId ?? String(pid))", cwd: cwd)
             }
-            out.append(Agent(id: id, kind: kind, name: spec.name, detail: detail, state: state, since: since, message: message,
-                             color: spec.color, logo: spec.logo, icon: spec.icon, hostBundleId: hostId,
-                             focus: focus, signal: signal))
+            var agent = Agent(id: id, kind: kind, name: spec.name, detail: detail, state: state, since: since, message: message,
+                              color: spec.color, logo: spec.logo, icon: spec.icon, hostBundleId: hostId,
+                              focus: focus, signal: signal)
+            agent.project = project
+            agent.branch = verdict?.branch
+            agent.title = title
+            agent.activity = activity
+            out.append(agent)
         }
 
         // Dock badges (needs Accessibility; cached briefly because the AX walk isn't free).
@@ -574,29 +595,51 @@ public final class AgentMonitor {
         return "\(a.state.rawValue)|\(a.message ?? "")|\(stamp)"
     }
 
+    /// Session numbers per agent id, kept for as long as the agent is around (lowest free number per name).
+    private var numbers: [String: Int] = [:]
+
+    func number(_ list: inout [Agent]) {
+        let ids = Set(list.map { $0.id })
+        numbers = numbers.filter { ids.contains($0.key) }
+        // Oldest first, so the session you started first is 1.
+        for i in list.indices.sorted(by: { list[$0].since < list[$1].since }) {
+            let name = list[i].name
+            if numbers[list[i].id] == nil {
+                let taken = Set(list.filter { $0.name == name && $0.id != list[i].id }.compactMap { numbers[$0.id] })
+                var n = 1
+                while taken.contains(n) { n += 1 }
+                numbers[list[i].id] = n
+            }
+            list[i].number = numbers[list[i].id] ?? 0
+        }
+    }
+
     private func publish(_ found: [Agent], first: Bool) {
         guard demoAgents == nil else { return }
+        var found = found
+        number(&found)
         var next: [Agent] = []
         var attention: [Agent] = []
         var states: [String: (state: Agent.State, since: Date)] = [:]
         for var a in found {
-            if a.needsYou, acknowledged[a.id] == Self.fingerprint(a) {
+            if a.alerting, acknowledged[a.id] == Self.fingerprint(a) {
                 a.state = .idle; a.signal = "seen"
-            } else if !a.needsYou {
+            } else if !a.alerting {
                 acknowledged.removeValue(forKey: a.id)
             }
             if let prev = previousStates[a.id] {
-                if prev.state == a.state { a.since = min(prev.since, a.since) } else if a.needsYou { attention.append(a) }
-            } else if a.needsYou, !first || a.signal == "banner" {
+                if prev.state == a.state { a.since = min(prev.since, a.since) } else if a.alerting { attention.append(a) }
+            } else if a.alerting, !first || a.signal == "banner" {
                 attention.append(a)
             }
             states[a.id] = (a.state, a.since)
             next.append(a)
         }
         next.sort { l, r in
-            if l.needsYou != r.needsYou { return l.needsYou }
-            if l.kind != r.kind { return rank(l.kind) < rank(r.kind) }
-            return l.name < r.name
+            if l.alerting != r.alerting { return l.alerting }
+            if (l.state == .working) != (r.state == .working) { return l.state == .working }
+            if l.name != r.name { return l.name < r.name }
+            return l.number < r.number
         }
         let ids = Set(next.map { $0.id })
         acknowledged = acknowledged.filter { ids.contains($0.key) }
@@ -608,7 +651,6 @@ public final class AgentMonitor {
         for a in attention { onAttention?(a) }
     }
 
-    private func rank(_ k: Agent.Kind) -> Int { k == .terminal ? 0 : k == .app ? 1 : 2 }
 
     // MARK: Focusing
 
@@ -637,7 +679,7 @@ public final class AgentMonitor {
 
     /// Marks an agent as seen (after you tap it) so the bar stops pulsing until something about it changes.
     public func acknowledge(_ id: String) {
-        guard let i = agents.firstIndex(where: { $0.id == id }), agents[i].needsYou else { return }
+        guard let i = agents.firstIndex(where: { $0.id == id }), agents[i].alerting else { return }
         acknowledged[id] = Self.fingerprint(agents[i])
         agents[i].state = .idle
         agents[i].signal = "seen"
@@ -650,25 +692,22 @@ public final class AgentMonitor {
 
     public static func demoList() -> [Agent] {
         let now = Date()
+        func make(_ id: String, _ kind: Agent.Kind, _ name: String, _ n: Int, _ state: Agent.State, ago: Double, project: String?, branch: String?,
+                  message: String? = nil, activity: String? = nil, detail: String = "", host: String? = nil, focus: Agent.Focus) -> Agent {
+            var a = Agent(id: id, kind: kind, name: name, detail: detail, state: state, since: now.addingTimeInterval(-ago), message: message,
+                          color: "#d97757", icon: "terminal", hostBundleId: host, focus: focus, signal: "session")
+            a.number = n; a.project = project; a.branch = branch; a.activity = activity
+            return a
+        }
+        let term: Agent.Focus = .terminal(bundleId: "com.apple.Terminal", tty: "ttys003", window: nil)
         return [
-            Agent(id: "d1", kind: .terminal, name: "Claude Code", detail: "widefive — add the agent strip · Terminal", state: .waiting, since: now.addingTimeInterval(-40),
-                  message: "Waiting for your permission: Bash", color: "#d97757", logo: "web:claude.ai", icon: "sparkle",
-                  hostBundleId: "com.apple.Terminal", focus: .terminal(bundleId: "com.apple.Terminal", tty: "ttys003", window: "widefive"), signal: "transcript"),
-            Agent(id: "d2", kind: .web, name: "Codex", detail: "Add agent monitor — Codex", state: .waiting, since: now.addingTimeInterval(-12),
-                  message: "Google Chrome · chatgpt.com · Your task is ready for review", color: "#10a37f", logo: "web:chatgpt.com", icon: "terminal", hostBundleId: "com.google.Chrome",
-                  focus: .tab(bundleId: "com.google.Chrome", url: "https://chatgpt.com/codex", title: ""), signal: "banner"),
-            Agent(id: "d3", kind: .terminal, name: "Gemini CLI", detail: "api · iTerm2", state: .working, since: now.addingTimeInterval(-200),
-                  message: nil, color: "#4285f4", logo: "web:gemini.google.com", icon: "diamond", hostBundleId: "com.googlecode.iterm2",
-                  focus: .terminal(bundleId: "com.googlecode.iterm2", tty: "ttys005", window: nil), signal: "cpu"),
-            Agent(id: "d4", kind: .app, name: "Cursor", detail: "landing-page", state: .working, since: now.addingTimeInterval(-90),
-                  message: nil, color: "#8b5cf6", logo: "web:cursor.com", icon: "cursorarrow", hostBundleId: "com.todesktop.230313mzl4w4u92",
-                  focus: .app(bundleId: "com.todesktop.230313mzl4w4u92", window: nil), signal: "hook"),
-            Agent(id: "d5", kind: .web, name: "Claude Code", detail: "Claude Code", state: .idle, since: now.addingTimeInterval(-300),
-                  message: nil, color: "#d97757", logo: "web:claude.ai", icon: "sparkle", hostBundleId: "com.google.Chrome",
-                  focus: .tab(bundleId: "com.google.Chrome", url: "https://claude.ai/code", title: ""), signal: "none"),
-            Agent(id: "d6", kind: .app, name: "ChatGPT", detail: "ChatGPT", state: .idle, since: now.addingTimeInterval(-900),
-                  message: nil, color: "#10a37f", logo: "web:chatgpt.com", icon: "bubble.left.fill", hostBundleId: "com.openai.chat",
-                  focus: .app(bundleId: "com.openai.chat", window: nil), signal: "none"),
+            make("d1", .terminal, "Claude Code", 2, .waiting, ago: 42, project: "widefive", branch: "agent-strip",
+                 message: "Approve: swift test", focus: term),
+            make("d2", .terminal, "Codex", 1, .done, ago: 8, project: "api", branch: "main", message: "Refactored the rate limiter, tests pass", focus: term),
+            make("d3", .terminal, "Claude Code", 1, .working, ago: 95, project: "landing", branch: "main", activity: "Editing Hero.tsx", focus: term),
+            make("d4", .web, "Claude Code", 3, .limited, ago: 300, project: nil, branch: nil, message: "Usage limit · resets 3:00 pm",
+                 detail: "claude.ai/code", focus: .url("https://claude.ai/code")),
+            make("d5", .terminal, "Codex", 2, .working, ago: 20, project: "infra", branch: "terraform", activity: "Running terraform plan", focus: term),
         ]
     }
 }

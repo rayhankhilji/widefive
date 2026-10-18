@@ -26,6 +26,69 @@ public enum AgentTranscripts {
         /// Last assistant text, trimmed, for the "needs you" message.
         public var lastText: String?
         public var file: URL
+        /// What it is doing right now, in words: "Running swift test", "Editing AgentMonitor.swift", "Thinking".
+        public var activity: String? = nil
+        /// The last turn ended on a usage limit or an API error.
+        public var problem: Problem? = nil
+        /// Git branch the session is on, when the journal records it.
+        public var branch: String? = nil
+    }
+
+    public enum Problem: Equatable {
+        /// Usage / rate limit, with when it resets if the message says.
+        case limited(resets: String?)
+        case error(String)
+    }
+
+    /// "Claude AI usage limit reached|1760000000", "5-hour limit reached ∙ resets 3pm", "API Error: 429 …",
+    /// "You've hit your usage limit. Try again in 2 hours." → limited; any other API error → error.
+    public static func classifyProblem(_ text: String) -> Problem {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let l = t.lowercased()
+        let limited = l.contains("limit reached") || l.contains("usage limit") || l.contains("rate limit") || l.contains("rate_limit")
+            || l.contains(" 429") || l.contains("quota") || l.contains("too many requests")
+        guard limited else { return .error(String(t.replacingOccurrences(of: "\n", with: " ").prefix(100))) }
+        if let bar = t.lastIndex(of: "|"), let epoch = Double(t[t.index(after: bar)...].trimmingCharacters(in: .whitespaces)), epoch > 1e9 {
+            let f = DateFormatter()
+            f.dateFormat = Calendar.current.isDateInToday(Date(timeIntervalSince1970: epoch)) ? "h:mm a" : "EEE h:mm a"
+            return .limited(resets: "resets " + f.string(from: Date(timeIntervalSince1970: epoch)).lowercased())
+        }
+        if let r = l.range(of: "resets") ?? l.range(of: "try again in") {
+            let tail = t[r.lowerBound...].split(whereSeparator: { ".\n(".contains($0) }).first.map(String.init) ?? ""
+            return .limited(resets: tail.isEmpty ? nil : String(tail.prefix(28)))
+        }
+        return .limited(resets: nil)
+    }
+
+    /// A tool call in plain words: Bash → "swift test", Edit → "Editing Foo.swift", Grep → "Searching “foo”".
+    public static func describeTool(_ name: String, input: [String: Any]) -> String {
+        func file(_ k: String = "file_path") -> String? { (input[k] as? String).map { ($0 as NSString).lastPathComponent } }
+        func short(_ s: String) -> String { String(s.split(separator: "\n").first.map(String.init)?.trimmingCharacters(in: .whitespaces).prefix(60) ?? "") }
+        switch name {
+        case "Bash", "exec_command", "shell", "local_shell", "container.exec":
+            if let c = input["command"] as? String, !c.isEmpty { return "Running " + short(c) }
+            if let c = input["cmd"] as? String, !c.isEmpty { return "Running " + short(c) }
+            if let a = input["command"] as? [String] {
+                let c = (a.count >= 3 && ["bash", "zsh", "sh"].contains(a[0]) && a[1].hasPrefix("-")) ? a[2] : a.joined(separator: " ")
+                return "Running " + short(c)
+            }
+            return "Running a command"
+        case "Edit", "MultiEdit", "str_replace_based_edit_tool": return "Editing " + (file() ?? "files")
+        case "Write": return "Writing " + (file() ?? "a file")
+        case "Read": return "Reading " + (file() ?? "a file")
+        case "NotebookEdit": return "Editing " + (file("notebook_path") ?? "a notebook")
+        case "Grep": return "Searching “\(short((input["pattern"] as? String) ?? ""))”"
+        case "Glob": return "Finding \(short((input["pattern"] as? String) ?? "files"))"
+        case "WebFetch": return "Fetching " + ((input["url"] as? String).flatMap { URL(string: $0)?.host } ?? "a page")
+        case "WebSearch", "web_search": return "Searching the web"
+        case "Task", "Agent": return "Subagent: " + short((input["description"] as? String) ?? "working")
+        case "TodoWrite": return "Planning"
+        case "apply_patch": return "Editing files"
+        case "update_plan": return "Planning"
+        default:
+            if name.hasPrefix("mcp__") { return "Using " + (name.components(separatedBy: "__").last ?? name).replacingOccurrences(of: "_", with: " ") }
+            return "Using \(name)"
+        }
     }
 
     public static var claudeProjects = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects")
@@ -91,6 +154,7 @@ public enum AgentTranscripts {
         var summary: String?
         var prompt: String?
         var lastText: String?
+        var branch: String?
         var verdict: Verdict?
         var scanned = 0
         for raw in lines.reversed() {
@@ -100,22 +164,34 @@ public enum AgentTranscripts {
             if type == "summary", summary == nil, let s = obj["summary"] as? String, !s.isEmpty { summary = s; continue }
             guard type == "user" || type == "assistant" else { continue }
             if obj["isSidechain"] as? Bool == true || obj["isMeta"] as? Bool == true { continue }
+            if branch == nil, let b = obj["gitBranch"] as? String, !b.isEmpty, b != "HEAD" { branch = b }
             let msg = obj["message"] as? [String: Any] ?? [:]
             let when = date(obj["timestamp"]) ?? Date()
+            let blocks = msg["content"] as? [[String: Any]] ?? []
             if type == "user" {
                 if let s = msg["content"] as? String, !s.hasPrefix("<") { prompt = String(s.prefix(80)) }
-                if verdict == nil { verdict = Verdict(phase: .working, at: when, title: nil, lastText: nil, file: file) }
+                else if let t = blocks.first(where: { $0["type"] as? String == "text" })?["text"] as? String, !t.hasPrefix("<") { prompt = String(t.prefix(80)) }
+                if verdict == nil {
+                    let isResult = blocks.contains { $0["type"] as? String == "tool_result" }
+                    verdict = Verdict(phase: .working, at: when, title: nil, lastText: nil, file: file, activity: isResult ? "Thinking" : "Thinking")
+                }
                 continue
             }
             // assistant
-            let blocks = msg["content"] as? [[String: Any]] ?? []
-            if lastText == nil, let t = blocks.last(where: { $0["type"] as? String == "text" })?["text"] as? String {
+            let text = blocks.last(where: { $0["type"] as? String == "text" })?["text"] as? String
+            let apiError = obj["isApiErrorMessage"] as? Bool == true || obj["error"] != nil
+            if lastText == nil, !apiError, let t = text {
                 let trimmed = t.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty { lastText = String(trimmed.prefix(140)) }
             }
             if verdict == nil {
-                if let tool = blocks.last(where: { $0["type"] as? String == "tool_use" })?["name"] as? String {
-                    verdict = Verdict(phase: .toolPending(tool), at: when, title: nil, lastText: nil, file: file)
+                if apiError {
+                    let problem = classifyProblem(text ?? ((obj["error"] as? String) ?? "API error"))
+                    verdict = Verdict(phase: .turnDone, at: when, title: nil, lastText: nil, file: file, problem: problem)
+                } else if let tool = blocks.last(where: { $0["type"] as? String == "tool_use" }) {
+                    let name = tool["name"] as? String ?? "tool"
+                    verdict = Verdict(phase: .toolPending(name), at: when, title: nil, lastText: nil, file: file,
+                                      activity: describeTool(name, input: tool["input"] as? [String: Any] ?? [:]))
                 } else {
                     verdict = Verdict(phase: .turnDone, at: when, title: nil, lastText: nil, file: file)
                 }
@@ -124,6 +200,7 @@ public enum AgentTranscripts {
         guard var v = verdict else { return nil }
         v.title = summary ?? prompt
         v.lastText = lastText
+        v.branch = branch
         return v
     }
 
@@ -176,26 +253,38 @@ public enum AgentTranscripts {
         var title: String?
         var lastText: String?
         var verdict: Verdict?
-        var pendingCall: String?
         var sawOutput: Set<String> = []
+        var branch: String?
         for raw in lines.reversed() {
             guard let obj = json(raw), let type = obj["type"] as? String, let p = obj["payload"] as? [String: Any] else { continue }
             let when = date(obj["timestamp"]) ?? Date()
             let kind = p["type"] as? String ?? ""
+            if type == "turn_context" || type == "session_meta", branch == nil,
+               let git = p["git"] as? [String: Any], let b = git["branch"] as? String, !b.isEmpty { branch = b }
             if type == "event_msg" {
                 switch kind {
                 case "task_complete", "turn_complete":
                     if lastText == nil, let m = p["last_agent_message"] as? String { lastText = clean(m) }
                     if verdict == nil { verdict = Verdict(phase: .turnDone, at: when, title: nil, lastText: nil, file: file) }
                 case "turn_aborted":
-                    if verdict == nil { verdict = Verdict(phase: .turnDone, at: when, title: nil, lastText: "Turn aborted", file: file) }
+                    if verdict == nil { verdict = Verdict(phase: .turnDone, at: when, title: nil, lastText: "Turn interrupted", file: file) }
+                case "error", "stream_error":
+                    if verdict == nil {
+                        let m = (p["message"] as? String) ?? "Error"
+                        verdict = Verdict(phase: .turnDone, at: when, title: nil, lastText: nil, file: file, problem: classifyProblem(m))
+                    }
                 case "exec_approval_request", "apply_patch_approval_request", "request_user_input", "request_permissions", "elicitation_request":
-                    if verdict == nil { verdict = Verdict(phase: .needsApproval(kind.replacingOccurrences(of: "_", with: " ")), at: when, title: nil, lastText: nil, file: file) }
+                    if verdict == nil {
+                        var what = kind == "apply_patch_approval_request" ? "Approve file changes" : "Approve a command"
+                        if let c = p["command"] as? [String] { what = "Approve: " + describeTool("exec_command", input: ["command": c]).replacingOccurrences(of: "Running ", with: "") }
+                        if kind == "request_user_input" || kind == "elicitation_request" { what = "Answer a question" }
+                        verdict = Verdict(phase: .needsApproval(what), at: when, title: nil, lastText: nil, file: file, activity: what)
+                    }
                 case "task_started", "turn_started":
-                    if verdict == nil { verdict = Verdict(phase: .working, at: when, title: nil, lastText: nil, file: file) }
+                    if verdict == nil { verdict = Verdict(phase: .working, at: when, title: nil, lastText: nil, file: file, activity: "Thinking") }
                 case "user_message":
                     if let m = p["message"] as? String, title == nil { title = String(clean(m).prefix(80)) }
-                    if verdict == nil { verdict = Verdict(phase: .working, at: when, title: nil, lastText: nil, file: file) }
+                    if verdict == nil { verdict = Verdict(phase: .working, at: when, title: nil, lastText: nil, file: file, activity: "Thinking") }
                 case "agent_message":
                     if lastText == nil, let m = p["message"] as? String { lastText = clean(m) }
                 default: break
@@ -204,11 +293,16 @@ public enum AgentTranscripts {
                 switch kind {
                 case "function_call_output", "custom_tool_call_output":
                     if let id = p["call_id"] as? String { sawOutput.insert(id) }
-                    if verdict == nil { verdict = Verdict(phase: .working, at: when, title: nil, lastText: nil, file: file) }
-                case "function_call", "custom_tool_call":
-                    if verdict == nil, pendingCall == nil, let id = p["call_id"] as? String, !sawOutput.contains(id) {
-                        pendingCall = p["name"] as? String ?? "tool"
-                        verdict = Verdict(phase: .toolPending(pendingCall!), at: when, title: nil, lastText: nil, file: file)
+                    if verdict == nil { verdict = Verdict(phase: .working, at: when, title: nil, lastText: nil, file: file, activity: "Thinking") }
+                case "function_call", "custom_tool_call", "local_shell_call":
+                    if verdict == nil, let id = p["call_id"] as? String, !sawOutput.contains(id) {
+                        let name = p["name"] as? String ?? (kind == "local_shell_call" ? "shell" : "tool")
+                        var input: [String: Any] = [:]
+                        if let a = p["arguments"] as? String, let d = a.data(using: .utf8),
+                           let o = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] { input = o }
+                        if let action = p["action"] as? [String: Any] { input = action }
+                        verdict = Verdict(phase: .toolPending(name), at: when, title: nil, lastText: nil, file: file,
+                                          activity: describeTool(name, input: input))
                     }
                 case "message":
                     let role = p["role"] as? String ?? ""
@@ -216,14 +310,17 @@ public enum AgentTranscripts {
                     if role == "user", title == nil, !text.isEmpty, !text.hasPrefix("<") { title = String(clean(text).prefix(80)) }
                     if role == "assistant", lastText == nil, !text.isEmpty { lastText = clean(text) }
                     if verdict == nil { verdict = Verdict(phase: role == "assistant" ? .turnDone : .working, at: when, title: nil, lastText: nil, file: file) }
+                case "reasoning":
+                    if verdict == nil { verdict = Verdict(phase: .working, at: when, title: nil, lastText: nil, file: file, activity: "Thinking") }
                 default: break
                 }
             }
-            if verdict != nil, title != nil, lastText != nil { break }
+            if verdict != nil, title != nil, lastText != nil, branch != nil { break }
         }
         guard var v = verdict else { return nil }
         v.title = title
         v.lastText = lastText
+        v.branch = branch
         return v
     }
 

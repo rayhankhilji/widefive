@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// What the Touch Bar knows about one coding agent on this Mac.
 public struct Agent: Equatable {
@@ -10,8 +10,30 @@ public struct Agent: Equatable {
         case waiting
         /// Finished the task / turn: your move.
         case done
+        /// Hit a usage / rate limit; `message` says when it resets.
+        case limited
+        /// The last turn failed (API error, crash).
+        case failed
         /// Running but nothing is happening (fresh session, agent app with no badge, or already seen).
         case idle
+    }
+
+    /// The mark drawn for an agent: the real Claude Code and Codex marks, the app's own icon, or a monogram.
+    public enum Mark: Equatable {
+        case claudeCode
+        case codex
+        case appIcon(String)
+        case monogram(String)
+
+        public static func `for`(name: String, appBundleId: String?) -> Mark {
+            let n = name.lowercased()
+            if n.hasPrefix("claude code") { return .claudeCode }
+            if n.hasPrefix("codex") { return .codex }
+            if let b = appBundleId, NSWorkspace.shared.urlForApplication(withBundleIdentifier: b) != nil, AgentCatalog.appSpec(bundleId: b, name: nil) != nil {
+                return .appIcon(b)
+            }
+            return .monogram(String(name.prefix(1)).uppercased())
+        }
     }
 
     /// How to bring it to the front when tapped.
@@ -48,12 +70,46 @@ public struct Agent: Equatable {
     public var focus: Focus
     /// "hook", "cpu", "badge", "title" — which signal decided `state`.
     public var signal: String
+    /// Session number among agents of the same name (Claude Code 1, Claude Code 2…). Set when published.
+    public var number: Int = 0
+    /// Project folder name, git branch and task title, when known.
+    public var project: String?
+    public var branch: String?
+    public var title: String?
+    /// What it is doing right now ("Running swift test", "Editing Foo.swift", "Thinking").
+    public var activity: String?
+    public var mark: Mark = .monogram("?")
 
     public init(id: String, kind: Kind, name: String, detail: String, state: State, since: Date = Date(), message: String? = nil,
                 color: String, logo: String? = nil, icon: String, hostBundleId: String? = nil, focus: Focus, signal: String) {
         self.id = id; self.kind = kind; self.name = name; self.detail = detail; self.state = state; self.since = since
         self.message = message; self.color = color; self.logo = logo; self.icon = icon; self.hostBundleId = hostBundleId
         self.focus = focus; self.signal = signal
+        self.mark = .for(name: name, appBundleId: kind == .app ? hostBundleId : nil)
+    }
+
+    /// "Claude Code 2"
+    public var displayName: String { number > 0 ? "\(name) \(number)" : name }
+
+    /// Worth a toast / a coloured dot: your move, a limit or an error.
+    public var alerting: Bool { needsYou || state == .limited || state == .failed }
+
+    /// One line of what's going on, for rows and toasts.
+    public var statusLine: String {
+        switch state {
+        case .working: return activity ?? "Working"
+        case .waiting: return message ?? "Needs your input"
+        case .done: return message ?? "Done"
+        case .limited: return message ?? "Usage limit reached"
+        case .failed: return message ?? "Stopped with an error"
+        case .idle: return signal == "seen" ? (message ?? "Seen") : "Idle"
+        }
+    }
+
+    /// Where it lives: "widefive · main" or the tab / app it belongs to.
+    public var whereLine: String {
+        if let p = project, !p.isEmpty { return [p, branch].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ") }
+        return detail
     }
 
     /// Something for you to do: answer it, or look at what it finished.
@@ -62,10 +118,12 @@ public struct Agent: Equatable {
     /// Short label for pills and menus.
     public var stateLabel: String {
         switch state {
-        case .waiting: return "needs you"
-        case .done: return "done"
-        case .working: return "working"
-        case .idle: return signal == "seen" ? "seen" : "idle"
+        case .waiting: return "Needs input"
+        case .done: return "Done"
+        case .working: return "Working"
+        case .limited: return "Rate limited"
+        case .failed: return "Error"
+        case .idle: return signal == "seen" ? "Seen" : "Idle"
         }
     }
 }
