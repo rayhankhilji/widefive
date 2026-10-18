@@ -148,6 +148,10 @@ final class AgentCatalogTests: XCTestCase {
         XCTAssertEqual(AgentCatalog.siteSpec(url: "https://chatgpt.com/codex/tasks/abc")?.name, "Codex")
         XCTAssertEqual(AgentCatalog.siteSpec(url: "https://app.devin.ai/sessions/x")?.name, "Devin")
         XCTAssertNil(AgentCatalog.siteSpec(url: "https://www.google.com/search?q=claude.ai/code"))
+        XCTAssertNil(AgentCatalog.siteSpec(url: "https://claude.ai/chat/abc"))
+        XCTAssertNil(AgentCatalog.siteSpec(url: "https://notclaude.ai/code"))
+        XCTAssertEqual(AgentCatalog.siteSpec(url: "https://www.claude.ai/code?x=1")?.name, "Claude Code")
+        XCTAssertEqual(AgentCatalog.siteSpec(url: "https://jules.google.com/task/1")?.name, "Jules")
         XCTAssertNil(AgentCatalog.siteSpec(url: "chrome://newtab"))
         XCTAssertEqual(AgentCatalog.siteSpec(url: "https://app.example.com/agents/1", extra: ["app.example.com/agents": "Example"])?.name, "Example")
         XCTAssertEqual(AgentCatalog.domain("https://www.claude.ai/code"), "claude.ai")
@@ -211,7 +215,7 @@ final class AgentHooksTests: XCTestCase {
         let rh = try XCTUnwrap(removed["hooks"] as? [String: Any])
         XCTAssertEqual(rh.keys.sorted(), ["Stop"])
         XCTAssertEqual(((rh["Stop"] as? [[String: Any]])?.first?["hooks"] as? [[String: Any]])?.first?["command"] as? String, "say done")
-        XCTAssertNil(AgentHooks.claudeSettings(removingFrom: AgentHooks.claudeSettings(adding: "/x", to: [:]))["hooks"])
+        XCTAssertNil(AgentHooks.claudeSettings(removingFrom: AgentHooks.claudeSettings(adding: "/x/widefive-agent-hook", to: [:]))["hooks"])
     }
 
     func testCodexConfigGetsNotifyAtTheTop() {

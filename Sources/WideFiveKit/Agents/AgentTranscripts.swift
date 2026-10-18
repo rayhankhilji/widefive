@@ -80,21 +80,24 @@ public enum AgentTranscripts {
     }
 
     public static func claudeVerdict(lines: [String], file: URL) -> Verdict? {
-        var title: String?
+        var summary: String?
+        var prompt: String?
         var lastText: String?
         var verdict: Verdict?
+        var scanned = 0
         for raw in lines.reversed() {
+            scanned += 1
+            if scanned > 400 { break }
             guard let obj = json(raw), let type = obj["type"] as? String else { continue }
-            if type == "summary", title == nil, let s = obj["summary"] as? String { title = s; continue }
+            if type == "summary", summary == nil, let s = obj["summary"] as? String, !s.isEmpty { summary = s; continue }
             guard type == "user" || type == "assistant" else { continue }
             if obj["isSidechain"] as? Bool == true || obj["isMeta"] as? Bool == true { continue }
             let msg = obj["message"] as? [String: Any] ?? [:]
             let when = date(obj["timestamp"]) ?? Date()
             if type == "user" {
-                if title == nil, let s = msg["content"] as? String, !s.hasPrefix("<") { title = String(s.prefix(80)) }
+                if let s = msg["content"] as? String, !s.hasPrefix("<") { prompt = String(s.prefix(80)) }
                 if verdict == nil { verdict = Verdict(phase: .working, at: when, title: nil, lastText: nil, file: file) }
-                // Keep scanning backwards only for the title.
-                if title != nil { break } else { continue }
+                continue
             }
             // assistant
             let blocks = msg["content"] as? [[String: Any]] ?? []
@@ -109,10 +112,9 @@ public enum AgentTranscripts {
                     verdict = Verdict(phase: .turnDone, at: when, title: nil, lastText: nil, file: file)
                 }
             }
-            if title != nil, lastText != nil { break }
         }
         guard var v = verdict else { return nil }
-        v.title = title
+        v.title = summary ?? prompt
         v.lastText = lastText
         return v
     }

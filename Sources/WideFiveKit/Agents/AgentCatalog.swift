@@ -206,11 +206,22 @@ public enum AgentCatalog {
 
     public static func siteSpec(url: String, extra: [String: String] = [:]) -> Spec? {
         let u = url.lowercased()
-        guard u.hasPrefix("http") else { return nil }
-        for (k, name) in extra where u.contains(k.lowercased()) {
-            return Spec(key: k, name: name, color: "#64748b", logo: domain(u).map { "web:\($0)" }, icon: "globe")
+        guard u.hasPrefix("http"), let parsed = URL(string: u), var host = parsed.host else { return nil }
+        if host.hasPrefix("www.") { host.removeFirst(4) }
+        let path = parsed.path.isEmpty ? "/" : parsed.path
+        for (k, name) in extra where siteMatches(k.lowercased(), host: host, path: path) {
+            return Spec(key: k, name: name, color: "#64748b", logo: "web:\(host)", icon: "globe")
         }
-        return sites.first { u.contains($0.match) }?.spec
+        return sites.first { siteMatches($0.match, host: host, path: path) }?.spec
+    }
+
+    /// "devin.ai/" matches app.devin.ai; "claude.ai/code" matches claude.ai/code/… but not a search URL that mentions it.
+    static func siteMatches(_ pattern: String, host: String, path: String) -> Bool {
+        let parts = pattern.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false)
+        let domain = String(parts[0])
+        let prefix = parts.count > 1 ? "/" + parts[1] : "/"
+        guard host == domain || host.hasSuffix("." + domain) else { return false }
+        return path == prefix || path.hasPrefix(prefix) || prefix == "/"
     }
 
     public static func domain(_ url: String) -> String? {
