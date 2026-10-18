@@ -469,14 +469,14 @@ final class ClaudeSessionsTests: XCTestCase {
     }
 
     func testStates() throws {
-        let waiting = try XCTUnwrap(entry(#"{"pid":1,"status":"waiting","waitingFor":"input needed","startedAt":1000000,"statusUpdatedAt":1060000}"#))
+        let waiting = try XCTUnwrap(entry(#"{"pid":1,"status":"waiting","waitingFor":"input needed","startedAt":1792325879599,"statusUpdatedAt":1792325939599}"#))
         XCTAssertEqual(ClaudeSessions.state(of: waiting).0, .waiting)
         XCTAssertEqual(ClaudeSessions.state(of: waiting).1, "Needs your input")
-        let perm = try XCTUnwrap(entry(#"{"pid":1,"status":"waiting","waitingFor":"permission to run Bash","startedAt":1000000,"statusUpdatedAt":1060000}"#))
+        let perm = try XCTUnwrap(entry(#"{"pid":1,"status":"waiting","waitingFor":"permission to run Bash","startedAt":1792325879599,"statusUpdatedAt":1792325939599}"#))
         XCTAssertEqual(ClaudeSessions.state(of: perm).1, "Waiting for your permission — permission to run Bash")
-        let done = try XCTUnwrap(entry(#"{"pid":1,"status":"idle","startedAt":1000000,"statusUpdatedAt":1060000}"#))
+        let done = try XCTUnwrap(entry(#"{"pid":1,"status":"idle","startedAt":1792325879599,"statusUpdatedAt":1792325939599}"#))
         XCTAssertEqual(ClaudeSessions.state(of: done).0, .done)
-        let fresh = try XCTUnwrap(entry(#"{"pid":1,"status":"idle","startedAt":1000000,"statusUpdatedAt":1000900}"#))
+        let fresh = try XCTUnwrap(entry(#"{"pid":1,"status":"idle","startedAt":1792325879599,"statusUpdatedAt":1792325880499}"#))
         XCTAssertEqual(ClaudeSessions.state(of: fresh).0, .idle)
         XCTAssertEqual(ClaudeSessions.state(of: try XCTUnwrap(entry(#"{"pid":1,"status":"shell"}"#))).0, .working)
     }
