@@ -337,9 +337,9 @@ public final class AgentMonitor {
             if let f = file { transcriptFiles[pid] = f }
         }
         guard let f = file else { return nil }
-        // Re-parse only when the file changed: modification time plus size (appends can land within the same timestamp).
-        let rv = try? f.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
-        let stamp = "\(rv?.contentModificationDate?.timeIntervalSince1970 ?? 0)|\(rv?.fileSize ?? -1)"
+        // Re-parse only when the file changed. stat(2), not URL resource values: those are cached per URL object.
+        var st = stat()
+        let stamp = stat(f.path, &st) == 0 ? "\(st.st_mtimespec.tv_sec).\(st.st_mtimespec.tv_nsec)|\(st.st_size)" : UUID().uuidString
         if let c = transcriptCache[f], c.stamp == stamp { return c.verdict }
         let v = key == "claude" ? AgentTranscripts.claudeVerdict(file: f) : AgentTranscripts.codexVerdict(file: f)
         transcriptCache[f] = (stamp, v)
