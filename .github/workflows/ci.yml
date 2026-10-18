@@ -45,22 +45,6 @@ jobs:
           swift run widefive --snapshot agents:demo out/agents.png 2 1004
           swift run widefive --snapshot home:demo out/home.png 1 1004
 
-      - name: Live check — notification banners and Chrome tabs on a real Mac
-        continue-on-error: true
-        run: |
-          set -x
-          BIN="$(swift build --show-bin-path)/widefive"
-          alarm() { perl -e 'alarm shift; exec @ARGV' "$@"; }
-          mkdir -p ~/.widefive
-          echo '{"agents":{"sites":{"example.com":"Example Agent"}}}' > ~/.widefive/config.json
-          osascript -e 'display notification "Claude needs your permission to use Bash" with title "Claude Code" subtitle "widefive CI"' || true
-          open -a "Google Chrome" "https://example.com/agents" || true
-          sleep 6
-          alarm 150 "$BIN" --agents 0 2>&1 | tee out/agents-live.txt || true
-          osascript -e 'display notification "Your task is complete" with title "Codex" subtitle "chatgpt.com"' || true
-          sleep 2
-          alarm 60 "$BIN" --agents 0 2>&1 | tail -25 | tee -a out/agents-live.txt || true
-
       - name: Build widefive.app (universal, ad-hoc signed)
         run: |
           Scripts/build-app.sh
@@ -72,6 +56,25 @@ jobs:
           name: widefive-app-${{ github.run_number }}
           path: out/widefive-*.app.zip
           if-no-files-found: error
+
+      - name: Live check — notification banners and Chrome tabs on a real Mac
+        continue-on-error: true
+        timeout-minutes: 6
+        run: |
+          set -x
+          BIN="$(swift build --show-bin-path)/widefive"
+          alarm() { perl -e 'alarm shift; exec @ARGV' "$@"; }
+          mkdir -p ~/.widefive
+          echo '{"agents":{"sites":{"example.com":"Example Agent"}}}' > ~/.widefive/config.json
+          alarm 20 osascript -e 'display notification "Claude needs your permission to use Bash" with title "Claude Code" subtitle "widefive CI"' || true
+          # Chrome's first run on a fresh runner shows a welcome window; launch it without waiting on it.
+          ( "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --no-first-run --no-default-browser-check \
+              "https://example.com/agents" >/dev/null 2>&1 & ) || true
+          sleep 6
+          alarm 150 "$BIN" --agents 0 2>&1 | tee out/agents-live.txt || true
+          alarm 20 osascript -e 'display notification "Your task is complete" with title "Codex" subtitle "chatgpt.com"' || true
+          sleep 2
+          alarm 60 "$BIN" --agents 0 2>&1 | tail -25 | tee -a out/agents-live.txt || true
 
       - name: Upload renders and logs
         if: always()
