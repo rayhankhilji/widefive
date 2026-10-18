@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to (re)build, e.g. v0.2.0"
+        description: "Version to release, e.g. v0.3.0. If the tag doesn't exist yet it's created on the latest main."
         required: true
 
 permissions:
@@ -42,8 +42,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.TAG }}
           fetch-depth: 0 # build number = commit count, release notes = commits since last tag
+
+      # "Run workflow" with a new version releases straight from main: no terminal needed. (A tag pushed with the
+      # workflow's own token doesn't start a second run of this workflow.)
+      - name: Use the tag, creating it on main if it's new
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || { echo "::error::tag must look like v1.2.3"; exit 1; }
+          git fetch --tags --force origin
+          if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" -m "widefive ${TAG#v}" "origin/${{ github.event.repository.default_branch }}"
+            git push origin "refs/tags/$TAG"
+          fi
+          git checkout -q "$TAG"
+          git log --oneline -1
 
       - name: Use the newest Xcode (default 16.4 / Swift 6.1 is too old)
         run: |
