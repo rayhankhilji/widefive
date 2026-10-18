@@ -113,21 +113,22 @@ tab comes to the front, Spaces and all. Tap **Agents** in the launcher for the f
 
 Nothing to install or configure. The signals, strongest first:
 
-1. **Session journals.** Claude Code and Codex write every turn to disk as they go (`~/.claude/projects/…/*.jsonl`,
-   `~/.codex/sessions/…/rollout-*.jsonl`). widefive matches the file to the process by folder and start time and reads
-   the last line: a finished reply means *waiting for your next prompt*; a tool call with no result and nothing running
-   means *waiting for your permission* (and names the tool); a Codex approval event means exactly that.
-2. **Notification banners.** Anything that posts a macOS notification when it needs you — Chrome or Safari for web agents
-   (Claude Code on the web, Codex, Devin…), Cursor, the Claude and ChatGPT apps, iTerm2 and Terminal bells from CLIs —
-   is read off the banner through the Accessibility permission widefive already has, and matched to the agent by app,
-   site and project name. Nothing is stored; only banners on screen are read.
-3. **Dock badges.** Apps that badge their Dock icon when a reply is ready show as waiting.
-4. **Process activity.** A terminal agent whose whole process tree has burned no CPU for `idleSeconds` (6 s) is sitting at a
-   prompt. Spinners keep ticking while an agent thinks or runs tools, so this catches agents without a journal too.
-5. **Tab titles.** Browser tabs count as waiting when their title matches `attentionTitles` (`(1) …`, "needs your approval", …).
-6. **Hooks (optional).** For a belt-and-braces exact signal, Menu → **Coding Agents → Install … Hooks** registers a 20-line
-   shell script with Claude Code (`~/.claude/settings.json`), Codex (`notify` in `~/.codex/config.toml`) and Cursor
-   (`~/.cursor/hooks.json`). Nothing else in those files is touched; **Remove … Hooks** puts them back.
+1. **Claude Code's own status.** Every running Claude Code session — any terminal, the VS Code / Cursor / JetBrains
+   extensions, the Claude desktop app's local Code tab — keeps `~/.claude/sessions/<pid>.json` up to date with whether it
+   is busy, waiting on you (and for what: input, a permission prompt) or done. It's the same file `claude agents` reads,
+   so the bar flips the instant Claude does. Red means it needs you, green with a check means it finished.
+2. **Session journals.** Codex (and older Claude Code) write every turn to disk as they go; a finished reply means done,
+   a tool call with nothing running means waiting for your permission, an approval event means exactly that.
+3. **Notifications.** Anything that posts a macOS notification about an agent — the Claude app when a Code session
+   (local or cloud) finishes, Chrome or Safari for web agents, Cursor, ChatGPT, Codex — is read off the banner through the
+   Accessibility permission and either marks that agent or, for a cloud session with no tab open, adds it to the bar.
+   Tap it and the tab or app comes up.
+4. **Dock badges, process activity and tab titles** for everything else.
+5. **Hooks (optional).** Menu → **Coding Agents → Install … Hooks** adds a belt-and-braces signal for Claude Code, Codex
+   and Cursor; **Remove … Hooks** puts their config back.
+
+If a permission is missing, the bar shows an amber chip; tap it and the Agents mode tells you which one and opens the
+Settings pane. A fresh build is a new app to macOS, so Accessibility has to be switched on again for it.
 
 Terminal tabs are found by tty in Terminal.app and iTerm2 (Warp, Ghostty, kitty, VS Code, Cursor get their window raised instead).
 Browser tabs are read and selected over AppleScript, so macOS asks once per browser for Automation permission. Firefox can't be scripted.
@@ -308,8 +309,9 @@ to `Casks/widefive.rb` in the tap and push. Users install with `brew install --c
 - Temperature/fan readings use the Intel SMC and show "—" on Apple Silicon.
 - Brightness uses the private DisplayServices framework; keyboard backlight uses private CoreBrightness
   (falls back to the F5/F6 illumination keys).
-- The agent strip's "waiting" detection is exact for Claude Code and Codex (their session journals) and for anything that
-  posts a notification; the rest is CPU/badge/title heuristics. Keep notifications allowed for your browser and agent apps
+- The agent strip is exact for local Claude Code (its live status files) and Codex (its journals). Cloud sessions on
+  claude.ai/code are picked up from the notifications Claude and your browser post, so keep those allowed (Focus modes
+  hide banners). The rest is CPU/badge/title heuristics. Keep notifications allowed for your browser and agent apps
   (Focus modes hide banners), and add patterns under `agents.attentionTitles` for sites with their own title convention.
 - The Intel MacBook Pro keyboard backlight is a single zone: one level for every key. Per-key lighting
   isn't possible in software on that hardware.
