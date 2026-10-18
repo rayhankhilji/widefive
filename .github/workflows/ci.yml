@@ -57,6 +57,20 @@ jobs:
           path: out/widefive-*.app.zip
           if-no-files-found: error
 
+      - name: A scan never blocks on Apple Events (Chrome open, no Automation consent)
+        timeout-minutes: 3
+        run: |
+          ( "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --no-first-run --no-default-browser-check \
+              "https://claude.ai/code" >/dev/null 2>&1 & ) || true
+          sleep 8
+          BIN="$(swift build --show-bin-path)/widefive"
+          start=$(date +%s)
+          perl -e 'alarm shift; exec @ARGV' 40 "$BIN" --agents 0 > out/agents-nonblocking.txt 2>&1; code=$?
+          echo "exit $code after $(( $(date +%s) - start ))s"
+          cat out/agents-nonblocking.txt
+          [ "$code" -eq 0 ] || { echo "::error::agent scan hung or failed (exit $code)"; exit 1; }
+          grep -q "browser com.google.Chrome: automation" out/agents-nonblocking.txt
+
       - name: Live check — notification banners and Chrome tabs on a real Mac
         continue-on-error: true
         timeout-minutes: 6
@@ -71,6 +85,12 @@ jobs:
           ( "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --no-first-run --no-default-browser-check \
               "https://example.com/agents" >/dev/null 2>&1 & ) || true
           sleep 6
+          # A Claude Code session, as Claude writes it: a `claude` process plus its live status file.
+          mkdir -p /tmp/proj-ci/bin ~/.claude/sessions && ln -sf /bin/sleep /tmp/proj-ci/bin/claude
+          (cd /tmp/proj-ci && exec /tmp/proj-ci/bin/claude 600) & CPID=$!
+          sleep 1
+          NOW=$(($(date +%s) * 1000))
+          echo "{\"pid\":$CPID,\"sessionId\":\"ci\",\"cwd\":\"/tmp/proj-ci\",\"kind\":\"interactive\",\"entrypoint\":\"cli\",\"name\":\"proj-ci\",\"startedAt\":$((NOW-60000)),\"status\":\"waiting\",\"waitingFor\":\"permission to run Bash\",\"statusUpdatedAt\":$NOW}" > ~/.claude/sessions/$CPID.json
           alarm 150 "$BIN" --agents 0 2>&1 | tee out/agents-live.txt || true
           alarm 20 osascript -e 'display notification "Your task is complete" with title "Codex" subtitle "chatgpt.com"' || true
           sleep 2

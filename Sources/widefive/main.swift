@@ -41,7 +41,8 @@ if let i = args.firstIndex(of: "--agents") {
     let store = ConfigStore()
     store.load()
     AgentMonitor.shared.config = store.config.agents
-    print(AgentMonitor.shared.diagnostics())
+    setvbuf(stdout, nil, _IOLBF, 0)
+    AgentMonitor.shared.diagnostics { print($0) }
     let secs = args.count > i + 1 ? Double(args[i + 1]) ?? 0 : 0
     if secs > 0 {
         print("\nwatching for \(Int(secs))s — change something and see what fires…")

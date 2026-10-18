@@ -23,6 +23,7 @@ public enum NotificationBanners {
         guard AXIsProcessTrusted(),
               let nc = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.notificationcenterui").first else { return [] }
         let app = AXUIElementCreateApplication(nc.processIdentifier)
+        AXUIElementSetMessagingTimeout(app, 0.5)
         guard let windows: [AXUIElement] = attr(app, kAXWindowsAttribute) else { return [] }
         var out: [Banner] = []
         var budget = maxNodes

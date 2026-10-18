@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Carbon
 
 /// AppleScript + Accessibility glue: list browser tabs, select a tab or terminal session, raise windows, read Dock badges.
 /// Everything here only talks to apps that are already running, so nothing ever gets launched by a scan.
@@ -31,6 +32,50 @@ public enum AppScripting {
     public static var automationDenied: [String] {
         errorLock.lock(); defer { errorLock.unlock() }
         return lastErrors.filter { $0.value.code == -1743 }.map { $0.key }.sorted()
+    }
+
+    // MARK: Automation permission (never block on it)
+
+    public enum Permission: Equatable { case granted, denied, needsConsent, notRunning, unknown(Int32) }
+
+    /// Asks macOS whether widefive may send Apple Events to an app, without ever showing a prompt or waiting.
+    /// A scan only talks to apps that answer `.granted`; an unanswered consent prompt would otherwise stall it for 2 min.
+    public static func permission(_ bundleId: String) -> Permission {
+        let target = NSAppleEventDescriptor(bundleIdentifier: bundleId)
+        guard let desc = target.aeDesc else { return .unknown(-1) }
+        let status = AEDeterminePermissionToAutomateTarget(desc, typeWildCard, typeWildCard, false)
+        switch status {
+        case noErr: return .granted
+        case OSStatus(errAEEventNotPermitted): return .denied
+        case OSStatus(errAEEventWouldRequireUserConsent): return .needsConsent
+        case OSStatus(procNotFound): return .notRunning
+        default: return .unknown(status)
+        }
+    }
+
+    private static let consentQueue = DispatchQueue(label: "widefive.automation-consent")
+    private static var consentAsked: Set<String> = []
+
+    /// Shows macOS's "widefive wants to control …" prompt once per app per launch, on its own thread.
+    public static func requestPermission(_ bundleId: String) {
+        errorLock.lock()
+        let first = consentAsked.insert(bundleId).inserted
+        errorLock.unlock()
+        guard first else { return }
+        consentQueue.async {
+            let target = NSAppleEventDescriptor(bundleIdentifier: bundleId)
+            guard let desc = target.aeDesc else { return }
+            let status = AEDeterminePermissionToAutomateTarget(desc, typeWildCard, typeWildCard, true)
+            errorLock.lock()
+            if status == OSStatus(errAEEventNotPermitted) { lastErrors[bundleId] = (-1743, "Not authorized to send Apple events") }
+            else if status == noErr { lastErrors[bundleId] = nil }
+            errorLock.unlock()
+        }
+    }
+
+    /// Wraps a script so no single Apple Event can hold a scan for more than `seconds`.
+    static func timeBoxed(_ source: String, seconds: Int) -> String {
+        "with timeout of \(seconds) seconds\n\(source)\nend timeout"
     }
 
     @discardableResult
@@ -73,6 +118,19 @@ public enum AppScripting {
     public static func browserTabs() -> [Tab] {
         var out: [Tab] = []
         for b in AgentCatalog.browsers where isRunning(b.bundleId) {
+            switch permission(b.bundleId) {
+            case .granted: break
+            case .needsConsent:
+                requestPermission(b.bundleId)
+                continue
+            case .denied:
+                errorLock.lock(); lastErrors[b.bundleId] = (-1743, "Not authorized to send Apple events"); errorLock.unlock()
+                continue
+            case .notRunning:
+                continue
+            case .unknown:
+                break // older macOS / odd state: try, but time-boxed
+            }
             let titleOf = b.safari ? "name of t" : "title of t"
             let src = """
             tell application id \(quoted(b.bundleId))
@@ -101,7 +159,7 @@ public enum AppScripting {
                 return out
             end tell
             """
-            guard let text = run(src, target: b.bundleId), !text.isEmpty else { continue }
+            guard let text = run(timeBoxed(src, seconds: 3), target: b.bundleId), !text.isEmpty else { continue }
             for rec in text.components(separatedBy: line) {
                 let f = rec.components(separatedBy: unit)
                 guard f.count >= 4, let w = Int(f[0]), let i = Int(f[1]) else { continue }
@@ -138,7 +196,8 @@ public enum AppScripting {
             return ""
         end tell
         """
-        guard run(src, target: bundleId) == "ok" else {
+        if permission(bundleId) == .needsConsent { requestPermission(bundleId) }
+        guard run(timeBoxed(src, seconds: 5), target: bundleId) == "ok" else {
             activate(bundleId)
             return false
         }
@@ -205,7 +264,8 @@ public enum AppScripting {
             end tell
             """
         }
-        return run(src, target: bundleId) == "ok"
+        if permission(bundleId) == .needsConsent { requestPermission(bundleId) }
+        return run(timeBoxed(src, seconds: 5), target: bundleId) == "ok"
     }
 
     // MARK: Apps & windows
@@ -222,6 +282,7 @@ public enum AppScripting {
         guard let needle, !needle.isEmpty, AXIsProcessTrusted(),
               let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first else { return false }
         let ax = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(ax, 1.0)
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(ax, kAXWindowsAttribute as CFString, &value) == .success,
               let windows = value as? [AXUIElement] else { return false }
@@ -242,6 +303,7 @@ public enum AppScripting {
     public static func dockBadges() -> [String: String] {
         guard AXIsProcessTrusted(), let dock = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first else { return [:] }
         let ax = AXUIElementCreateApplication(dock.processIdentifier)
+        AXUIElementSetMessagingTimeout(ax, 0.5)
         var kids: CFTypeRef?
         guard AXUIElementCopyAttributeValue(ax, kAXChildrenAttribute as CFString, &kids) == .success,
               let children = kids as? [AXUIElement] else { return [:] }

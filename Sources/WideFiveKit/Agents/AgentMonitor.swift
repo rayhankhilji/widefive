@@ -49,7 +49,16 @@ public final class AgentMonitor {
     // Background-queue state.
     private struct CPUSample { var cpu: Double; var at: Double; var lastActive: Double; var busyRuns: Int }
     private var cpuSamples: [pid_t: CPUSample] = [:]
-    private var cachedTabs: [AppScripting.Tab] = []
+    /// Browser tabs are read on their own queue: a slow browser can delay tab rows, never the rest of the bar.
+    private let tabsQueue = DispatchQueue(label: "widefive.agents.tabs", qos: .utility)
+    private let focusQueue = DispatchQueue(label: "widefive.agents.focus", qos: .userInitiated)
+    private let tabsLock = NSLock()
+    private var tabsInFlight = false
+    private var _cachedTabs: [AppScripting.Tab] = []
+    private var cachedTabs: [AppScripting.Tab] {
+        get { tabsLock.lock(); defer { tabsLock.unlock() }; return _cachedTabs }
+        set { tabsLock.lock(); _cachedTabs = newValue; tabsLock.unlock() }
+    }
     private var lastTabScan: Double = 0
     private var cachedBadges: [String: String] = [:]
     private var lastBadgeScan: Double = 0
@@ -114,7 +123,15 @@ public final class AgentMonitor {
 
     /// Human-readable dump of what a scan sees, for `widefive --agents` and bug reports.
     public func diagnostics() -> String {
-        var out: [String] = []
+        var lines: [String] = []
+        diagnostics { lines.append($0) }
+        return lines.joined(separator: "\n")
+    }
+
+    /// Same, streamed line by line (so a slow step never hides what came before it).
+    public func diagnostics(_ emit: @escaping (String) -> Void) {
+        struct Out { let emit: (String) -> Void; func append(_ s: String) { emit(s) } }
+        let out = Out(emit: emit)
         let procs = ProcessScanner.list()
         out.append("widefive agents diagnostics — \(Date())")
         out.append("accessibility: \(AXIsProcessTrusted() ? "granted" : "NOT granted (banners, badges and window raising need it)")")
@@ -143,7 +160,11 @@ public final class AgentMonitor {
         let agentApps = apps.compactMap { a in AgentCatalog.appSpec(bundleId: a.bundleIdentifier, name: a.localizedName, extra: config.apps).map { "\($0.name) (\(a.bundleIdentifier ?? "?"))" } }
         out.append("agent apps running: \(agentApps)")
         out.append("dock badges: \(AppScripting.dockBadges())")
+        for b in AgentCatalog.browsers where AppScripting.isRunning(b.bundleId) {
+            out.append("browser \(b.bundleId): automation \(AppScripting.permission(b.bundleId))")
+        }
         let tabs = config.scanBrowsers ? AppScripting.browserTabs() : []
+        cachedTabs = tabs
         out.append("browser tabs: \(tabs.count)")
         for t in tabs where AgentCatalog.siteSpec(url: t.url, extra: config.sites) != nil { out.append("  \(t.bundleId) w\(t.window) t\(t.index) \(t.url) — \(t.title)") }
         out.append("banners on screen: \(NotificationBanners.current())")
@@ -156,8 +177,9 @@ public final class AgentMonitor {
         let errors = AppScripting.lastErrors
         if !errors.isEmpty { out.append("apple events errors: \(errors.map { "\($0.key): \($0.value.code) \($0.value.message)" })") }
         out.append("")
+        lastTabScan = CACurrentMediaTime()
         for a in scanNow() { out.append("→ \(a.kind) \(a.name) [\(a.state)] via \(a.signal): \(a.detail)\(a.message.map { " — " + $0 } ?? "")") }
-        return out.joined(separator: "\n")
+        if let h = hint { out.append("hint: \(h.text)") }
     }
 
     // MARK: Collecting (background queue)
@@ -333,7 +355,7 @@ public final class AgentMonitor {
 
         // Browser tabs.
         if cfg.scanBrowsers {
-            if now - lastTabScan >= Self.tabInterval { cachedTabs = AppScripting.browserTabs(); lastTabScan = now }
+            if now - lastTabScan >= Self.tabInterval { lastTabScan = now; refreshTabs() }
             let patterns = cfg.attentionTitles.isEmpty ? AgentCatalog.defaultAttentionTitles : cfg.attentionTitles
             var seenURLs: Set<String> = []
             var browserNames: [String: String] = [:]
@@ -363,6 +385,24 @@ public final class AgentMonitor {
         cpuSamples = cpuSamples.filter { alive.contains($0.key) }
         return out
     }
+
+    private func refreshTabs() {
+        tabsLock.lock()
+        if tabsInFlight { tabsLock.unlock(); return }
+        tabsInFlight = true
+        tabsLock.unlock()
+        tabsQueue.async { [weak self] in
+            let tabs = AppScripting.browserTabs()
+            guard let self else { return }
+            self.tabsLock.lock()
+            self._cachedTabs = tabs
+            self.tabsInFlight = false
+            self.tabsLock.unlock()
+        }
+    }
+
+    /// Reads tabs synchronously (diagnostics only).
+    func refreshTabsNow() { cachedTabs = AppScripting.browserTabs() }
 
     /// CPU seconds of a process plus its descendants (tools it is running), three levels deep.
     private func subtreeCPU(_ pid: pid_t, children: [pid_t: [pid_t]], depth: Int = 0) -> Double {
@@ -558,7 +598,7 @@ public final class AgentMonitor {
     /// Brings the agent's window/tab to the front. Runs off the main thread (AppleScript can take a moment).
     public func focus(_ agent: Agent, done: ((Bool) -> Void)? = nil) {
         acknowledge(agent.id)
-        queue.async {
+        focusQueue.async {
             let ok: Bool
             switch agent.focus {
             case .app(let bid, let window):
