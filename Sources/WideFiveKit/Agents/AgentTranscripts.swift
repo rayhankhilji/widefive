@@ -32,7 +32,7 @@ public enum AgentTranscripts {
     public static var codexSessions = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/sessions")
 
     /// Bytes read from the end of a transcript per scan. Turns are small; big tool outputs are what pushes this up.
-    static let tailBytes = 256 * 1024
+    public static let tailBytes = 256 * 1024
 
     static let iso: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
