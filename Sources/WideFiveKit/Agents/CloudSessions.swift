@@ -8,7 +8,7 @@ import Security
 public final class CloudSessions {
     public static let shared = CloudSessions()
 
-    public enum Status: Equatable {
+    public enum Status: Error, Equatable {
         case off
         case ok(Int)
         /// No Claude Code sign-in on this Mac (or it's an API-key login).
