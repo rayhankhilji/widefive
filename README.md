@@ -107,16 +107,23 @@ tab comes to the front, Spaces and all. Tap **Agents** in the launcher for the f
 <details>
 <summary>How it knows, and how to make it exact</summary>
 
-Three signals, strongest first:
+Nothing to install or configure. The signals, strongest first:
 
-1. **Hooks.** Claude Code, Codex CLI and Cursor can tell widefive directly. Menu → **Coding Agents → Install … Hooks**
-   writes a 20-line shell script to `~/.widefive/bin/widefive-agent-hook` and registers it (Claude Code: `~/.claude/settings.json`
-   `Notification` / `Stop` / `UserPromptSubmit` / `PreToolUse`; Codex: `notify` in `~/.codex/config.toml`; Cursor: `~/.cursor/hooks.json`).
-   Nothing else in those files is touched, and **Remove … Hooks** puts them back. Restart running sessions to pick hooks up.
-2. **Dock badges.** Apps that badge their Dock icon when a reply is ready (ChatGPT, Claude, Cursor…) show as waiting. Needs Accessibility.
-3. **Heuristics.** A terminal agent whose whole process tree has burned no CPU for `idleSeconds` (6 s) is sitting at a prompt.
-   Spinners keep ticking while an agent thinks or runs tools, so this is surprisingly reliable; hooks make it exact.
-   Browser tabs count as waiting when their title matches `attentionTitles` (`(1) …`, "needs your approval", …).
+1. **Session journals.** Claude Code and Codex write every turn to disk as they go (`~/.claude/projects/…/*.jsonl`,
+   `~/.codex/sessions/…/rollout-*.jsonl`). widefive matches the file to the process by folder and start time and reads
+   the last line: a finished reply means *waiting for your next prompt*; a tool call with no result and nothing running
+   means *waiting for your permission* (and names the tool); a Codex approval event means exactly that.
+2. **Notification banners.** Anything that posts a macOS notification when it needs you — Chrome or Safari for web agents
+   (Claude Code on the web, Codex, Devin…), Cursor, the Claude and ChatGPT apps, iTerm2 and Terminal bells from CLIs —
+   is read off the banner through the Accessibility permission widefive already has, and matched to the agent by app,
+   site and project name. Nothing is stored; only banners on screen are read.
+3. **Dock badges.** Apps that badge their Dock icon when a reply is ready show as waiting.
+4. **Process activity.** A terminal agent whose whole process tree has burned no CPU for `idleSeconds` (6 s) is sitting at a
+   prompt. Spinners keep ticking while an agent thinks or runs tools, so this catches agents without a journal too.
+5. **Tab titles.** Browser tabs count as waiting when their title matches `attentionTitles` (`(1) …`, "needs your approval", …).
+6. **Hooks (optional).** For a belt-and-braces exact signal, Menu → **Coding Agents → Install … Hooks** registers a 20-line
+   shell script with Claude Code (`~/.claude/settings.json`), Codex (`notify` in `~/.codex/config.toml`) and Cursor
+   (`~/.cursor/hooks.json`). Nothing else in those files is touched; **Remove … Hooks** puts them back.
 
 Terminal tabs are found by tty in Terminal.app and iTerm2 (Warp, Ghostty, kitty, VS Code, Cursor get their window raised instead).
 Browser tabs are read and selected over AppleScript, so macOS asks once per browser for Automation permission. Firefox can't be scripted.
@@ -294,8 +301,8 @@ to `Casks/widefive.rb` in the tap and push. Users install with `brew install --c
 - Temperature/fan readings use the Intel SMC and show "—" on Apple Silicon.
 - Brightness uses the private DisplayServices framework; keyboard backlight uses private CoreBrightness
   (falls back to the F5/F6 illumination keys).
-- The agent strip's "waiting" detection is exact with hooks installed (Claude Code, Codex, Cursor) and a CPU/badge/title
-  heuristic for everything else; web agents only count as waiting when their tab title says so. Add patterns under
-  `agents.attentionTitles` for sites that use a different convention.
+- The agent strip's "waiting" detection is exact for Claude Code and Codex (their session journals) and for anything that
+  posts a notification; the rest is CPU/badge/title heuristics. Keep notifications allowed for your browser and agent apps
+  (Focus modes hide banners), and add patterns under `agents.attentionTitles` for sites with their own title convention.
 - The Intel MacBook Pro keyboard backlight is a single zone: one level for every key. Per-key lighting
   isn't possible in software on that hardware.

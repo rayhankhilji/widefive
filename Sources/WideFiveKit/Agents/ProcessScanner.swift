@@ -80,7 +80,7 @@ public enum ProcessScanner {
     }
 
     public static func path(_ pid: pid_t) -> String? {
-        var buf = [CChar](repeating: 0, count: Int(PROC_PIDPATHINFO_MAXSIZE))
+        var buf = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
         guard proc_pidpath(pid, &buf, UInt32(buf.count)) > 0 else { return nil }
         return String(cString: buf)
     }

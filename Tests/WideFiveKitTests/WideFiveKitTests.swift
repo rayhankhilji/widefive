@@ -238,3 +238,129 @@ Tests pass."}}"#)
         XCTAssertNil((removed["hooks"] as? [String: Any])?["beforeSubmitPrompt"])
     }
 }
+
+final class AgentTranscriptTests: XCTestCase {
+    let file = URL(fileURLWithPath: "/tmp/x.jsonl")
+
+    func testClaudeProjectFolderNames() {
+        XCTAssertEqual(AgentTranscripts.claudeProjectNames(for: "/Users/me/code/app"), ["-Users-me-code-app"])
+        XCTAssertEqual(AgentTranscripts.claudeProjectNames(for: "/Users/me/.config/x_y"), ["-Users-me--config-x-y", "-Users-me-.config-x_y"])
+    }
+
+    func testClaudeTurnDoneAndToolPending() throws {
+        let lines = [
+            #"{"type":"summary","summary":"Add the agent strip","leafUuid":"x"}"#,
+            #"{"type":"user","timestamp":"2026-10-18T10:00:00.000Z","cwd":"/p","sessionId":"s","isSidechain":false,"message":{"role":"user","content":"add the agent strip to the bar"}}"#,
+            #"{"type":"assistant","timestamp":"2026-10-18T10:00:05.000Z","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"Sure, let me look."}]}}"#,
+            #"{"type":"assistant","timestamp":"2026-10-18T10:00:06.000Z","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"swift test"}}]}}"#,
+        ]
+        let pending = try XCTUnwrap(AgentTranscripts.claudeVerdict(lines: lines, file: file))
+        XCTAssertEqual(pending.phase, .toolPending("Bash"))
+        XCTAssertEqual(pending.title, "Add the agent strip")
+        XCTAssertEqual(pending.lastText, "Sure, let me look.")
+        XCTAssertEqual(pending.at.timeIntervalSince1970, 1792490406, accuracy: 1)
+
+        let result = lines + [#"{"type":"user","timestamp":"2026-10-18T10:00:09.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]},"toolUseResult":{"stdout":"ok"}}"#]
+        XCTAssertEqual(AgentTranscripts.claudeVerdict(lines: result, file: file)?.phase, .working)
+
+        let done = result + [#"{"type":"assistant","timestamp":"2026-10-18T10:00:12.000Z","message":{"id":"m2","role":"assistant","content":[{"type":"text","text":"All tests pass.\n"}]}}"#,
+                             #"{"type":"system","subtype":"turn_duration","durationMs":12000}"#,
+                             #"{"type":"file-history-snapshot","messageId":"m2"}"#]
+        let v = try XCTUnwrap(AgentTranscripts.claudeVerdict(lines: done, file: file))
+        XCTAssertEqual(v.phase, .turnDone)
+        XCTAssertEqual(v.lastText, "All tests pass.")
+        // A trailing half-written line is ignored.
+        XCTAssertEqual(AgentTranscripts.claudeVerdict(lines: done + [#"{"type":"user","timest"#], file: file)?.phase, .turnDone)
+        // Sidechain (subagent) and meta lines don't count.
+        XCTAssertEqual(AgentTranscripts.claudeVerdict(lines: done + [#"{"type":"user","isSidechain":true,"message":{"role":"user","content":"x"}}"#, #"{"type":"user","isMeta":true,"message":{"role":"user","content":"<meta>"}}"#], file: file)?.phase, .turnDone)
+        XCTAssertNil(AgentTranscripts.claudeVerdict(lines: ["not json", ""], file: file))
+    }
+
+    func testClaudeTitleFromFirstPrompt() {
+        let lines = [#"{"type":"user","timestamp":"2026-10-18T10:00:00Z","message":{"role":"user","content":"fix the failing test"}}"#,
+                     #"{"type":"assistant","timestamp":"2026-10-18T10:00:05Z","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"Done."}]}}"#]
+        let v = AgentTranscripts.claudeVerdict(lines: lines, file: file)
+        XCTAssertEqual(v?.title, "fix the failing test")
+        XCTAssertEqual(v?.phase, .turnDone)
+    }
+
+    func testCodexRollout() throws {
+        XCTAssertEqual(AgentTranscripts.codexCwd(firstLine: #"{"timestamp":"t","type":"session_meta","payload":{"id":"s","cwd":"/Users/me/app","cli_version":"0.50"}}"#), "/Users/me/app")
+        XCTAssertEqual(AgentTranscripts.codexCwd(firstLine: #"{"id":"s","timestamp":"t","cwd":"/legacy","instructions":null}"#), "/legacy")
+        XCTAssertNil(AgentTranscripts.codexCwd(firstLine: "nope"))
+        let lines = [
+            #"{"timestamp":"2026-10-18T10:00:00.000Z","type":"session_meta","payload":{"id":"s","cwd":"/Users/me/app"}}"#,
+            #"{"timestamp":"2026-10-18T10:00:01.000Z","type":"event_msg","payload":{"type":"user_message","message":"refactor the logger"}}"#,
+            #"{"timestamp":"2026-10-18T10:00:01.500Z","type":"event_msg","payload":{"type":"task_started"}}"#,
+            #"{"timestamp":"2026-10-18T10:00:03.000Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{}","call_id":"c1"}}"#,
+        ]
+        let pending = try XCTUnwrap(AgentTranscripts.codexVerdict(lines: lines, file: file))
+        XCTAssertEqual(pending.phase, .toolPending("exec_command"))
+        XCTAssertEqual(pending.title, "refactor the logger")
+        let output = lines + [#"{"timestamp":"2026-10-18T10:00:04.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"ok"}}"#]
+        XCTAssertEqual(AgentTranscripts.codexVerdict(lines: output, file: file)?.phase, .working)
+        let done = output + [#"{"timestamp":"2026-10-18T10:00:08.000Z","type":"event_msg","payload":{"type":"agent_message","message":"Logger refactored."}}"#,
+                             #"{"timestamp":"2026-10-18T10:00:08.100Z","type":"event_msg","payload":{"type":"task_complete","last_agent_message":"Logger refactored.","duration_ms":7000}}"#,
+                             #"{"timestamp":"2026-10-18T10:00:08.200Z","type":"event_msg","payload":{"type":"token_count","info":{}}}"#]
+        let v = try XCTUnwrap(AgentTranscripts.codexVerdict(lines: done, file: file))
+        XCTAssertEqual(v.phase, .turnDone)
+        XCTAssertEqual(v.lastText, "Logger refactored.")
+        let approval = done + [#"{"timestamp":"2026-10-18T10:00:20.000Z","type":"event_msg","payload":{"type":"exec_approval_request","call_id":"c2","command":["rm","-rf","x"]}}"#]
+        XCTAssertEqual(AgentTranscripts.codexVerdict(lines: approval, file: file)?.phase, .needsApproval("exec approval request"))
+    }
+
+    func testTailLinesReadsOnlyCompleteTrailingLines() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("widefive-tests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let f = dir.appendingPathComponent("t.jsonl")
+        let body = (0..<200).map { "{\"n\":\($0),\"pad\":\"\(String(repeating: "x", count: 100))\"}" }.joined(separator: "\n") + "\n"
+        try body.write(to: f, atomically: true, encoding: .utf8)
+        let all = try XCTUnwrap(AgentTranscripts.tailLines(f))
+        XCTAssertEqual(all.count, 200)
+        let tail = try XCTUnwrap(AgentTranscripts.tailLines(f, bytes: 1000))
+        XCTAssertLessThan(tail.count, 12)
+        XCTAssertEqual(tail.last, "{\"n\":199,\"pad\":\"\(String(repeating: "x", count: 100))\"}")
+        XCTAssertTrue(tail.first!.hasPrefix("{\"n\":"))
+
+        // A real Claude-style project folder is found by cwd and modification time.
+        let projects = dir.appendingPathComponent("projects")
+        AgentTranscripts.claudeProjects = projects
+        let cwd = "/Users/me/code/app"
+        let pdir = projects.appendingPathComponent("-Users-me-code-app")
+        try FileManager.default.createDirectory(at: pdir, withIntermediateDirectories: true)
+        try "{}\n".write(to: pdir.appendingPathComponent("a.jsonl"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(AgentTranscripts.claudeTranscripts(cwd: cwd, since: Date().addingTimeInterval(-60)).count, 1)
+        XCTAssertEqual(AgentTranscripts.claudeTranscripts(cwd: cwd, since: Date().addingTimeInterval(60)).count, 0)
+        XCTAssertEqual(AgentTranscripts.claudeTranscripts(cwd: "/elsewhere", since: .distantPast).count, 0)
+
+        // Codex: day folders are walked from `since` to today.
+        let sessions = dir.appendingPathComponent("sessions")
+        AgentTranscripts.codexSessions = sessions
+        let c = Calendar(identifier: .gregorian).dateComponents([.year, .month, .day], from: Date())
+        let today = sessions.appendingPathComponent(String(format: "%04d/%02d/%02d", c.year!, c.month!, c.day!))
+        try FileManager.default.createDirectory(at: today, withIntermediateDirectories: true)
+        try #"{"timestamp":"t","type":"session_meta","payload":{"id":"s","cwd":"/Users/me/app"}}"#.write(to: today.appendingPathComponent("rollout-2026-10-18T10-00-00-abc.jsonl"), atomically: true, encoding: .utf8)
+        let found = AgentTranscripts.codexTranscripts(since: Date().addingTimeInterval(-3600))
+        XCTAssertEqual(found.count, 1)
+        XCTAssertEqual(AgentTranscripts.codexCwd(file: found[0]), "/Users/me/app")
+    }
+}
+
+final class BannerMatchTests: XCTestCase {
+    func testBannerMatchesTheRightAgent() {
+        let agents = AgentMonitor.demoList()
+        let hosts = ["d1": "Terminal", "d2": "Google Chrome", "d3": "iTerm2", "d4": "Cursor", "d5": "Google Chrome", "d6": "ChatGPT"]
+        func m(_ app: String?, _ text: String, bundle: String? = nil) -> String? {
+            AgentMonitor.match(banner: NotificationBanners.Banner(id: "1", app: app, bundleId: bundle, text: text), agents: agents, hostNames: hosts).map { agents[$0].id }
+        }
+        XCTAssertEqual(m("Google Chrome", "Google Chrome · claude.ai · Claude Code · Your session needs input"), "d5")
+        XCTAssertEqual(m("Google Chrome", "Google Chrome · chatgpt.com · Codex · Task complete: Add agent monitor"), "d2")
+        XCTAssertEqual(m("Cursor", "Cursor · Agent finished in landing-page"), "d4")
+        XCTAssertEqual(m("iTerm2", "iTerm2 · Gemini CLI · done"), "d3")
+        XCTAssertEqual(m("Terminal", "Terminal · Bell in widefive — claude"), "d1")
+        XCTAssertEqual(m(nil, "ChatGPT · Your response is ready", bundle: "com.openai.chat"), "d6")
+        XCTAssertNil(m("Mail", "Mail · New message from Bob"))
+        XCTAssertNil(m("Slack", "Slack · hey"))
+    }
+}
