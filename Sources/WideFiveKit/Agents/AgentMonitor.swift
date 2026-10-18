@@ -38,6 +38,8 @@ public final class AgentMonitor {
     private var lastTabScan: Double = 0
     private var cachedBadges: [String: String] = [:]
     private var lastBadgeScan: Double = 0
+    /// argv never changes for a process's lifetime, so it's read once per (pid, start time).
+    private var argvCache: [pid_t: (start: Double, args: [String])] = [:]
     private var transcriptFiles: [pid_t: URL] = [:]
     private var transcriptCache: [URL: (mtime: Date, verdict: AgentTranscripts.Verdict?)] = [:]
     private var codexCwdCache: [URL: String] = [:]
@@ -151,15 +153,16 @@ public final class AgentMonitor {
         let events = AgentHooks.events()
         let hooksByPid = Dictionary(events.map { ($0.pid, $0) }, uniquingKeysWith: { a, b in a.time > b.time ? a : b })
 
-        // Terminal agents: pass 1 — who looks like one.
+        // Terminal agents: pass 1 — who looks like one. The kernel's short name can't be trusted (the native Claude
+        // installer runs a file called "2.0.14" through a `claude` symlink), so argv decides, cached per process.
         var matched: [pid_t: AgentCatalog.Spec] = [:]
-        for p in procs {
-            let c = p.comm.lowercased()
-            let candidate = AgentCatalog.terminal.contains { c.hasPrefix($0.key.prefix(15)) }
-                || AgentCatalog.interpreters.contains(c)
-                || cfg.processes.keys.contains { c.hasPrefix($0.lowercased().prefix(15)) }
-            guard candidate else { continue }
-            let args = ProcessScanner.arguments(p.pid)
+        argvCache = argvCache.filter { entry in table[entry.key]?.startTime == entry.value.start }
+        for p in procs where p.pid != 1 {
+            let args: [String]
+            if let c = argvCache[p.pid], c.start == p.startTime { args = c.args } else {
+                args = ProcessScanner.arguments(p.pid)
+                argvCache[p.pid] = (p.startTime, args)
+            }
             if let spec = AgentCatalog.terminalSpec(arguments: args, comm: p.comm, extra: cfg.processes) { matched[p.pid] = spec }
         }
         // Pass 2 — drop wrappers (node shim → native binary, uv → python): keep the deepest process of a chain.
