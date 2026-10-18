@@ -35,6 +35,15 @@ if let i = args.firstIndex(of: "--frames"), args.count > i + 3 {
     exit(0)
 }
 
+if let i = args.firstIndex(of: "--ax-dump") {
+    // Prints an app's accessibility tree (default: Notification Center) to see what banners look like on this macOS.
+    _ = NSApplication.shared
+    let bid = args.count > i + 1 ? args[i + 1] : "com.apple.notificationcenterui"
+    print(NotificationBanners.dumpTree(bundleId: bid))
+    print("banners read: \(NotificationBanners.current())")
+    exit(0)
+}
+
 if let i = args.firstIndex(of: "--agents") {
     // Print what the coding-agent monitor sees, then (optionally) watch for changes for N seconds.
     _ = NSApplication.shared

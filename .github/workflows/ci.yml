@@ -71,6 +71,24 @@ jobs:
           [ "$code" -eq 0 ] || { echo "::error::agent scan hung or failed (exit $code)"; exit 1; }
           grep -q "browser com.google.Chrome: automation" out/agents-nonblocking.txt
 
+      - name: Live check — what a notification banner looks like to Accessibility
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          BIN="$(swift build --show-bin-path)/widefive"
+          alarm() { perl -e 'alarm shift; exec @ARGV' "$@"; }
+          # Dismiss any consent alert a previous step left so banners can show.
+          alarm 10 osascript -e 'tell application "System Events" to key code 53' || true
+          alarm 20 osascript -e 'display notification "Claude needs your permission to use Bash" with title "Claude Code" subtitle "fix-login"' || true
+          sleep 1.5
+          screencapture -x out/screen-banner.png || true
+          alarm 30 "$BIN" --ax-dump com.apple.notificationcenterui 2>&1 | tee out/ax-notificationcenter.txt | tail -60 || true
+          # A notification from a real app bundle too (Terminal), in case script notifications are suppressed.
+          alarm 20 osascript -e 'tell application "Terminal" to display notification "Task complete" with title "Codex"' || true
+          sleep 1.5
+          screencapture -x out/screen-banner2.png || true
+          alarm 30 "$BIN" --ax-dump com.apple.notificationcenterui 2>&1 | tee -a out/ax-notificationcenter.txt | tail -60 || true
+
       - name: Live check — notification banners and Chrome tabs on a real Mac
         continue-on-error: true
         timeout-minutes: 6

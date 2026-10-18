@@ -87,6 +87,42 @@ public enum NotificationBanners {
         for k in kids { collectText(k, depth: depth + 1, budget: &budget, into: &out) }
     }
 
+    /// The raw accessibility tree of an app (roles, subroles, identifiers, text), for `widefive --ax-dump <bundle id>`.
+    public static func dumpTree(bundleId: String, maxDepth: Int = 12) -> String {
+        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first else { return "\(bundleId) not running" }
+        let root = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(root, 1)
+        var lines: [String] = ["\(bundleId) pid \(app.processIdentifier) trusted=\(AXIsProcessTrusted())"]
+        var budget = 2000
+        func visit(_ el: AXUIElement, _ depth: Int) {
+            guard budget > 0, depth <= maxDepth else { return }
+            budget -= 1
+            var names: CFArray?
+            AXUIElementCopyAttributeNames(el, &names)
+            let attrs = (names as? [String]) ?? []
+            func str(_ k: String) -> String? {
+                guard let v: CFTypeRef = attr(el, k) else { return nil }
+                if let s = v as? String { return s.isEmpty ? nil : String(s.prefix(100)) }
+                if let a = v as? NSAttributedString { return String(a.string.prefix(100)) }
+                return nil
+            }
+            var parts = [str(kAXRoleAttribute) ?? "?"]
+            if let v = str(kAXSubroleAttribute) { parts.append("sub=\(v)") }
+            if let v = str(kAXIdentifierAttribute) { parts.append("id=\(v)") }
+            if let v = str(kAXTitleAttribute) { parts.append("title=\(v)") }
+            if let v = str(kAXDescriptionAttribute) { parts.append("desc=\(v)") }
+            if let v = str(kAXValueAttribute) { parts.append("value=\(v)") }
+            for k in ["AXStackingIdentifier", "AXAttributedDescription"] where attrs.contains(k) {
+                if let v = str(k) { parts.append("\(k)=\(v)") }
+            }
+            lines.append(String(repeating: "  ", count: depth) + parts.joined(separator: " "))
+            guard let kids: [AXUIElement] = attr(el, kAXChildrenAttribute) else { return }
+            for k in kids { visit(k, depth + 1) }
+        }
+        visit(root, 0)
+        return lines.joined(separator: "\n")
+    }
+
     private static func attr<T>(_ el: AXUIElement, _ name: String) -> T? {
         var v: CFTypeRef?
         guard AXUIElementCopyAttributeValue(el, name as CFString, &v) == .success else { return nil }
