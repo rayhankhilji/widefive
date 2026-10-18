@@ -145,6 +145,21 @@ public enum AgentTranscripts {
         return out.sorted { $0.1 > $1.1 }.map { $0.0 }
     }
 
+    /// True while a session's background subagents are still writing (Claude Code keeps their journals in
+    /// <project>/<session id>/subagents/agent-*.jsonl).
+    public static func claudeSubagentsActive(cwd: String, sessionId: String, within seconds: Double = 12) -> Bool {
+        let fm = FileManager.default
+        for name in claudeProjectNames(for: cwd) {
+            let dir = claudeProjects.appendingPathComponent(name).appendingPathComponent(sessionId).appendingPathComponent("subagents")
+            guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles]) else { continue }
+            for f in files where f.pathExtension == "jsonl" {
+                var st = stat()
+                if stat(f.path, &st) == 0, Date().timeIntervalSince1970 - Double(st.st_mtimespec.tv_sec) < seconds { return true }
+            }
+        }
+        return false
+    }
+
     public static func claudeVerdict(file: URL) -> Verdict? {
         guard let lines = tailLines(file) else { return nil }
         return claudeVerdict(lines: lines, file: file)

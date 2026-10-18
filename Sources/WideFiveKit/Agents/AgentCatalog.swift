@@ -183,21 +183,34 @@ public enum AgentCatalog {
             let base = (a as NSString).lastPathComponent
             if !base.isEmpty { names.append(base) }
         }
-        let lowered = names.map { n -> String in
-            var s = n.lowercased()
-            for suffix in [".js", ".mjs", ".cjs", ".py", "-aarch64-apple-darwin", "-x86_64-apple-darwin"] where s.hasSuffix(suffix) {
+        // An app's own main executable (Claude.app/Contents/MacOS/Claude, Codex.app/…/Codex) is the app, not a CLI agent.
+        let isAppMain = arguments.first.map { $0.contains(".app/Contents/MacOS/") } ?? false
+        let stripped = names.map { n -> String in
+            var s = n
+            for suffix in [".js", ".mjs", ".cjs", ".py", "-aarch64-apple-darwin", "-x86_64-apple-darwin"] where s.lowercased().hasSuffix(suffix) {
                 s.removeLast(suffix.count)
             }
             return s
         }
-        for n in lowered {
-            if let name = extra[n] { return Spec(key: n, name: name, color: "#64748b", icon: "terminal") }
-            if let spec = terminal.first(where: { $0.key == n }) { return spec }
+        if !isAppMain {
+            for n in stripped {
+                if let name = extra.first(where: { $0.key.caseInsensitiveCompare(n) == .orderedSame })?.value {
+                    return Spec(key: n.lowercased(), name: name, color: "#64748b", icon: "terminal")
+                }
+                // CLI names are lowercase; "Claude" (the desktop app) must not read as `claude`.
+                if let spec = terminal.first(where: { $0.key == n }) { return spec }
+            }
         }
-        // Package names: node_modules/@anthropic-ai/claude-code, @openai/codex, @google/gemini-cli.
-        let joined = arguments.prefix(4).joined(separator: " ").lowercased()
-        if joined.contains("claude-code") { return terminal[0] }
-        if joined.contains("@openai/codex") { return terminal[1] }
+        // Package names and embedded copies: node_modules/@anthropic-ai/claude-code, the Claude Agent SDK (what the Claude
+        // desktop app's Code sessions run), Claude Code inside Claude.app, @openai/codex, Codex.app, @google/gemini-cli.
+        let joined = arguments.prefix(6).joined(separator: " ").lowercased()
+        if joined.contains("claude-code") || joined.contains("claude-agent-sdk") || joined.contains("claude_agent_sdk")
+            || !isAppMain && joined.contains("/claude.app/") && (joined.contains("/claude ") || joined.hasSuffix("/claude") || joined.contains("cli.js")) {
+            return terminal[0]
+        }
+        if joined.contains("@openai/codex") || !isAppMain && joined.contains("/codex.app/") && (joined.contains("/codex ") || joined.hasSuffix("/codex")) {
+            return terminal[1]
+        }
         if joined.contains("gemini-cli") { return terminal[2] }
         return nil
     }

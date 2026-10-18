@@ -15,7 +15,9 @@ public final class AgentMonitor {
     public static let shared = AgentMonitor()
 
     public private(set) var agents: [Agent] = []
-    public var config = AgentsConfig()
+    public var config = AgentsConfig() {
+        didSet { CloudSessions.shared.enabled = config.cloudSessions }
+    }
     /// Main thread; fires whenever the list or any state changes.
     public var onChange: (() -> Void)?
     /// Main thread; an agent just started waiting for you.
@@ -28,10 +30,26 @@ public final class AgentMonitor {
 
     /// What's stopping detection from being complete, with the Settings pane that fixes it.
     public struct Hint: Equatable { public var text: String; public var settingsURL: String }
-    public var hint: Hint? {
+    /// The current hint, refreshed with each scan (cheap to read from drawing code).
+    public private(set) var hint: Hint?
+
+    func computeHint() -> Hint? {
         if !AXIsProcessTrusted() {
             return Hint(text: "Allow Accessibility so widefive can see agent notifications and raise their windows",
                         settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+        }
+        if config.cloudSessions {
+            switch CloudSessions.shared.status {
+            case .keychainDenied:
+                return Hint(text: "Cloud sessions need Keychain access — switch them off and on in the menu to be asked again", settingsURL: "")
+            case .expired:
+                return Hint(text: "Claude Code sign-in expired — run claude once and cloud sessions come back", settingsURL: "")
+            case .noSignIn:
+                return Hint(text: "Cloud sessions need Claude Code signed in with your Claude account (claude auth login)", settingsURL: "")
+            case .error(let e):
+                return Hint(text: "Cloud sessions: \(e)", settingsURL: "")
+            default: break
+            }
         }
         if let denied = AppScripting.automationDenied.first {
             let name = NSRunningApplication.runningApplications(withBundleIdentifier: denied).first?.localizedName ?? denied
@@ -171,6 +189,7 @@ public final class AgentMonitor {
         for t in tabs where AgentCatalog.siteSpec(url: t.url, extra: config.sites) != nil { out.append("  \(t.bundleId) w\(t.window) t\(t.index) \(t.url) — \(t.title)") }
         out.append("banners on screen: \(NotificationBanners.current())")
         out.append("hook events: \(AgentHooks.events().count)")
+        out.append("cloud sessions: \(config.cloudSessions ? "\(CloudSessions.shared.status)" : "off (opt in from the menu)")")
         out.append("claude code sessions (\(ClaudeSessions.directory.path)):")
         for e in ClaudeSessions.entries() {
             let (st, msg) = ClaudeSessions.state(of: e)
@@ -181,7 +200,7 @@ public final class AgentMonitor {
         out.append("")
         lastTabScan = CACurrentMediaTime()
         for a in scanNow() { out.append("→ \(a.kind) \(a.name) [\(a.state)] via \(a.signal): \(a.detail)\(a.message.map { " — " + $0 } ?? "")") }
-        if let h = hint { out.append("hint: \(h.text)") }
+        if let h = computeHint() { out.append("hint: \(h.text)") }
     }
 
     // MARK: Collecting (background queue)
@@ -254,7 +273,8 @@ public final class AgentMonitor {
             let resumed = sample.busyRuns >= 2
             let started = Date(timeIntervalSince1970: p.startTime)
             let hook = hooksByPid[pid]
-            let cwd = hook?.cwd ?? ProcessScanner.cwd(pid)
+            let cwd = hook?.cwd ?? sessionByPid[pid]?.cwd ?? ProcessScanner.cwd(pid)
+            var backgroundNote: String?
             let verdict = transcriptVerdict(pid: pid, key: spec.key, cwd: cwd, started: started)
 
             var state: Agent.State = quiet >= cfg.idleSeconds ? .waiting : .working
@@ -267,6 +287,19 @@ public final class AgentMonitor {
                 signal = "session"
                 (state, message) = ClaudeSessions.state(of: session)
                 since = session.statusUpdatedAt ?? wall
+                // The turn is over but work goes on: background subagents still writing, or tasks it started still running.
+                if state == .done || state == .idle {
+                    let changed = (session.statusUpdatedAt ?? started).timeIntervalSince1970
+                    let tasks = (children[pid] ?? []).filter { k in
+                        guard let r = table[k], r.startTime >= changed - 1 else { return false }
+                        return !["caffeinate", "ps", "git"].contains(r.comm)
+                    }
+                    if let sid = session.sessionId, let dir = cwd, AgentTranscripts.claudeSubagentsActive(cwd: dir, sessionId: sid) {
+                        state = .working; message = nil; backgroundNote = "Background agents running"
+                    } else if !tasks.isEmpty, busy || quiet < 4 {
+                        state = .working; message = nil; backgroundNote = "Background task running"
+                    }
+                }
                 if state == .done, let last = verdict?.lastText, verdict?.phase == .turnDone, verdict?.problem == nil { message = last }
                 if state == .waiting, session.waitingFor == nil || session.waitingFor == "input needed",
                    case .toolPending = verdict?.phase, let act = verdict?.activity {
@@ -308,7 +341,7 @@ public final class AgentMonitor {
                     message = text
                 }
             }
-            let activity = state == .working ? (verdict?.activity ?? "Working") : nil
+            let activity = state == .working ? (backgroundNote ?? verdict?.activity ?? "Working") : nil
             // Without an exact signal, a process that has done nothing for a long while is waiting on something.
             if session == nil, state == .working, quiet >= max(cfg.idleSeconds * 5, 30) { state = .waiting; signal = "cpu"; message = message ?? "No activity for a while" }
 
@@ -374,6 +407,25 @@ public final class AgentMonitor {
             out.append(Agent(id: id, kind: .app, name: spec.name, detail: window ?? (app.localizedName ?? spec.name), state: state, since: wall,
                              message: message, color: spec.color, logo: spec.logo ?? "app:\(bid)", icon: spec.icon, hostBundleId: bid,
                              focus: .app(bundleId: bid, window: window), signal: signal))
+        }
+
+        // Cloud sessions (opt-in): exact state straight from Claude Code's own session list.
+        let cloud = CloudSessions.shared
+        cloud.refreshIfNeeded()
+        for cs in cloud.sessions {
+            bridged.insert(cs.id)
+            let tab = cachedTabs.first { $0.url.contains(cs.id) }
+            let focus: Agent.Focus = tab.map { .tab(bundleId: $0.bundleId, url: $0.url, title: $0.title) } ?? .url("https://claude.ai/code/\(cs.id)")
+            let id = "cloud:\(cs.id)"
+            var a = Agent(id: id, kind: .web, name: "Claude Code", detail: cs.title, state: cs.state, since: cs.updated, message: cs.message,
+                          color: "#d97757", logo: "web:claude.ai", icon: "cloud", hostBundleId: tab?.bundleId, focus: focus, signal: "cloud")
+            a.project = cs.repo
+            a.branch = cs.branch
+            a.title = cs.title
+            a.activity = cs.state == .working ? cs.title : nil
+            if let tab { hostNames[id] = NSRunningApplication.runningApplications(withBundleIdentifier: tab.bundleId).first?.localizedName ?? "" }
+            strong.insert(id)
+            out.append(a)
         }
 
         // Browser tabs.
@@ -643,7 +695,9 @@ public final class AgentMonitor {
         }
         let ids = Set(next.map { $0.id })
         acknowledged = acknowledged.filter { ids.contains($0.key) }
-        let changed = next != agents
+        let newHint = computeHint()
+        let changed = next != agents || newHint != hint
+        hint = newHint
         previousStates = states
         agents = next
         lastScan = Date()

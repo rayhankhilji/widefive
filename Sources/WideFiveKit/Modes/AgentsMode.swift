@@ -10,9 +10,7 @@ public final class AgentsMode: StripMode, DemoStartable {
     public var refreshInterval: Double { 0.5 }
     public var showsExitButton: Bool { true }
     public var allowsGestures: Bool { false }
-    public var isAnimated: Bool {
-        scroller.animating || presses.animating || age < 0.4 || agents.contains { $0.state == .working || $0.state == .waiting }
-    }
+    public var isAnimated: Bool { scroller.animating || presses.animating || age < 0.4 }
 
     private var ctx: ModeContext?
     private var agents: [Agent] = []
@@ -223,7 +221,7 @@ public final class AgentsMode: StripMode, DemoStartable {
         defer { pressed = nil }
         guard !wasDragging, !longFired, let id = pressed, let ctx else { return }
         if id == "hint" {
-            if let h = AgentMonitor.shared.hint, let url = URL(string: h.settingsURL) { NSWorkspace.shared.open(url) }
+            if let h = AgentMonitor.shared.hint, !h.settingsURL.isEmpty, let url = URL(string: h.settingsURL) { NSWorkspace.shared.open(url) }
             if !AXIsProcessTrusted() { Keys.ensureAccessibility(prompt: true) }
             return
         }

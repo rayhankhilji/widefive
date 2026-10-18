@@ -666,3 +666,135 @@ final class AgentDetailTests: XCTestCase {
         for (_, key) in Agent.Mark.officialKeys { XCTAssertNotNil(AgentIcons.image(key), key) }
     }
 }
+
+final class GestureTests: XCTestCase {
+    func touch(_ id: Int, _ x: CGFloat, _ time: Double, startX: CGFloat? = nil) -> StripTouch {
+        StripTouch(id: id, x: x, y: 15, startX: startX ?? x, startTime: time, time: time)
+    }
+
+    /// A touch whose end was never delivered (it ended in a mode without gestures) must not turn the next single tap
+    /// into a two-finger volume gesture.
+    func testLostTouchDoesNotHijackTheNextTap() {
+        let g = GestureEngine()
+        XCTAssertFalse(g.began(touch(1, 100, 0)))       // long-press that switched modes; its end goes elsewhere
+        g.forget(1)
+        XCTAssertFalse(g.began(touch(2, 300, 1)))       // a normal tap afterwards
+        XCTAssertFalse(g.ended(touch(2, 300, 1.1)))
+        // Even if forget() were missed, a stale touch expires.
+        XCTAssertFalse(g.began(touch(3, 100, 2)))
+        XCTAssertFalse(g.began(touch(4, 300, 9)))
+        XCTAssertFalse(g.isClaiming)
+    }
+
+    func testTwoFingersStillMeanVolume() {
+        let g = GestureEngine()
+        var volume: Float?
+        g.emit = { if case .volume(let v) = $0 { volume = v } }
+        XCTAssertFalse(g.began(touch(1, 100, 0)))
+        XCTAssertTrue(g.began(touch(2, 140, 0.05)))
+        XCTAssertTrue(g.moved(touch(2, 240, 0.2)))
+        XCTAssertNotNil(volume)
+        g.reset()
+        XCTAssertFalse(g.isClaiming)
+    }
+}
+
+final class CloudSessionTests: XCTestCase {
+    func testMapsSessionsLikeClaudeCodeDoes() {
+        let now = ISO8601DateFormatter().string(from: Date())
+        let old = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-6 * 3600))
+        let json = """
+        {"data":[
+          {"id":"session_A","title":"Fix login bug","status":"active","worker_status":"running","last_event_at":"\(now)",
+           "config":{"sources":[{"type":"git_repository","url":"https://github.com/me/web-app","branch":"fix-login"}]}},
+          {"id":"session_B","title":"Add tests","status":"active","worker_status":"requires_action","last_event_at":"\(now)",
+           "external_metadata":{"pending_action":{"tool_name":"Bash","description":"Run npm test"}}},
+          {"id":"session_C","title":"Docs","status":"active","worker_status":"idle","status_bucket":"completed","last_event_at":"\(now)",
+           "external_metadata":{"post_turn_summary":{"summary":"Docs updated and pushed"}}},
+          {"id":"session_D","title":"Old","status":"active","worker_status":"idle","status_bucket":"completed","last_event_at":"\(old)"},
+          {"id":"session_E","title":"Gone","status":"archived","worker_status":"idle","last_event_at":"\(now)"},
+          {"id":"session_F","title":"Broke","status":"active","worker_status":"idle","status_bucket":"failed","last_event_at":"\(now)",
+           "external_metadata":{"post_turn_summary":{"status_detail":"API Error: 500"}}},
+          {"id":"session_G","title":"Asks","status":"paused","worker_status":"idle","status_bucket":"blocked","last_event_at":"\(now)"}
+        ]}
+        """
+        let list = CloudSessions.parseSessions(Data(json.utf8))
+        let byId = Dictionary(uniqueKeysWithValues: list.map { ($0.id, $0) })
+        XCTAssertEqual(byId["session_A"]?.state, .working)
+        XCTAssertEqual(byId["session_A"]?.repo, "web-app")
+        XCTAssertEqual(byId["session_A"]?.branch, "fix-login")
+        XCTAssertEqual(byId["session_B"]?.state, .waiting)
+        XCTAssertEqual(byId["session_B"]?.message, "Run npm test")
+        XCTAssertEqual(byId["session_C"]?.state, .done)
+        XCTAssertEqual(byId["session_C"]?.message, "Docs updated and pushed")
+        XCTAssertNil(byId["session_D"], "finished long ago: not on the bar")
+        XCTAssertNil(byId["session_E"], "archived")
+        XCTAssertEqual(byId["session_F"]?.state, .failed)
+        XCTAssertEqual(byId["session_F"]?.message, "API Error: 500")
+        XCTAssertEqual(byId["session_G"]?.state, .waiting)
+        XCTAssertTrue(CloudSessions.parseSessions(Data("nope".utf8)).isEmpty)
+    }
+
+    func testReadsTheSignInFormat() {
+        let ok = CloudSessions.parseToken(Data(#"{"claudeAiOauth":{"accessToken":"tok","refreshToken":"r","expiresAt":1792325879599,"scopes":["user:inference"]}}"#.utf8))
+        if case .success(let (t, exp)) = ok {
+            XCTAssertEqual(t, "tok")
+            XCTAssertEqual(exp?.timeIntervalSince1970 ?? 0, 1792325879.599, accuracy: 0.01)
+        } else { XCTFail("not parsed") }
+        if case .failure(let s) = CloudSessions.parseToken(Data(#"{"other":{}}"#.utf8)) { XCTAssertEqual(s, .noSignIn) } else { XCTFail() }
+        XCTAssertEqual(CloudSessions.pendingAction("Approve deploy"), "Approve deploy")
+        XCTAssertEqual(CloudSessions.pendingAction(["tool_name": "Bash"]), "Approve: Bash")
+    }
+}
+
+final class SessionRecognitionTests: XCTestCase {
+    func testDesktopAppAndSDKProcessesAreClaudeCode() {
+        XCTAssertEqual(AgentCatalog.terminalSpec(arguments: [
+            "/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper",
+            "/Applications/Claude.app/Contents/Resources/app.asar.unpacked/node_modules/@anthropic-ai/claude-agent-sdk/cli.js",
+            "--output-format", "stream-json"], comm: "Claude Helper")?.name, "Claude Code")
+        XCTAssertEqual(AgentCatalog.terminalSpec(arguments: ["/Users/me/Library/Application Support/Claude/claude-code/2.1.300/claude", "--print"],
+                                                 comm: "claude")?.name, "Claude Code")
+        XCTAssertEqual(AgentCatalog.terminalSpec(arguments: ["/Applications/Codex.app/Contents/Resources/codex", "app-server"], comm: "codex")?.name, "Codex")
+        XCTAssertNil(AgentCatalog.terminalSpec(arguments: ["/Applications/Claude.app/Contents/MacOS/Claude"], comm: "Claude"))
+    }
+
+    /// A session whose turn is over but whose background subagent is still writing is working, not idle.
+    func testBackgroundAgentsKeepASessionWorking() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("widefive-bg-\(UUID().uuidString)").resolvingSymlinksInPath()
+        let project = root.appendingPathComponent("svc")
+        let bin = root.appendingPathComponent("bin")
+        let sessions = root.appendingPathComponent("sessions")
+        for d in [project, bin, sessions] { try fm.createDirectory(at: d, withIntermediateDirectories: true) }
+        defer { try? fm.removeItem(at: root) }
+        try fm.createSymbolicLink(at: bin.appendingPathComponent("claude"), withDestinationURL: URL(fileURLWithPath: "/bin/sleep"))
+        let proc = Process()
+        proc.executableURL = bin.appendingPathComponent("claude")
+        proc.arguments = ["300"]
+        proc.currentDirectoryURL = project
+        try proc.run()
+        defer { proc.terminate() }
+        usleep(300_000)
+        let pid = proc.processIdentifier
+        let cwd = try XCTUnwrap(ProcessScanner.cwd(pid))
+        ClaudeSessions.directory = sessions
+        let projects = root.appendingPathComponent("projects")
+        AgentTranscripts.claudeProjects = projects
+        let started = Date().addingTimeInterval(-300).timeIntervalSince1970 * 1000
+        let o: [String: Any] = ["pid": Int(pid), "sessionId": "s-bg", "cwd": cwd, "kind": "interactive", "status": "idle",
+                                "startedAt": started, "statusUpdatedAt": started + 120_000]
+        try JSONSerialization.data(withJSONObject: o).write(to: sessions.appendingPathComponent("\(pid).json"))
+        let monitor = AgentMonitor()
+        var cfg = AgentsConfig(); cfg.scanBrowsers = false
+        monitor.config = cfg
+        XCTAssertEqual(monitor.scanNow().first { $0.id == "proc:\(pid)" }?.state, .done)
+        // A subagent journal being written right now.
+        let sub = projects.appendingPathComponent(AgentTranscripts.claudeProjectNames(for: cwd)[0]).appendingPathComponent("s-bg/subagents")
+        try fm.createDirectory(at: sub, withIntermediateDirectories: true)
+        try "{}\n".write(to: sub.appendingPathComponent("agent-1.jsonl"), atomically: true, encoding: .utf8)
+        let a = try XCTUnwrap(monitor.scanNow().first { $0.id == "proc:\(pid)" })
+        XCTAssertEqual(a.state, .working)
+        XCTAssertEqual(a.activity, "Background agents running")
+    }
+}
