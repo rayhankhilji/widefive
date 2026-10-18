@@ -98,15 +98,16 @@ The Mario-style one: ? blocks, mushrooms, stars, breakable bricks, enemies to st
 
 **Launcher** (<kbd>⌃⌥⌘Space</kbd>): every mode, one swipe away.
 
-<img src="docs/media/stills/home-agents.png" width="100%" alt="Home bar with the agent chips: two pulsing red, two working, +2 more">
+<img src="docs/media/stills/home-agents.png" width="100%" alt="Home bar with the agents card: Claude Code 2 needs input, Codex 1 done, Claude Code 1 working, +2 more">
 
 **It watches your coding agents.** Claude Code and Codex in a terminal, Cursor, the Claude and ChatGPT apps, Devin, Grok,
 and web agents in Chrome, Safari, Arc, Brave or Edge (Claude Code on the web, Codex, Devin, Jules, Copilot, Lovable, Bolt…).
-Each one gets a chip on the right of the home bar. The moment one stops and waits for you (a permission prompt, a question,
-a finished turn) its chip pulses red and a toast says who and why. Tap the chip and that terminal tab, app window or browser
+Each session gets a numbered cell on the right of the home bar (Claude Code 1, Claude Code 2, Codex 1…) with its real
+icon and a status dot: amber when it needs your input or approval, green when it's done, orange when it hit a rate limit,
+a thin spinner while it works. A toast says who and why the moment one needs you. Tap the chip and that terminal tab, app window or browser
 tab comes to the front, Spaces and all. Tap **Agents** in the launcher for the full list with what each one is doing.
 
-<img src="docs/media/stills/agents.png" width="100%" alt="Agents mode: Claude Code waiting for permission, a Codex tab waiting, Gemini CLI and Cursor working">
+<img src="docs/media/stills/agents.png" width="100%" alt="Agents mode: numbered Claude Code and Codex sessions with project, branch, status and time">
 
 <details>
 <summary>How it knows, and how to make it exact</summary>
@@ -116,7 +117,8 @@ Nothing to install or configure. The signals, strongest first:
 1. **Claude Code's own status.** Every running Claude Code session — any terminal, the VS Code / Cursor / JetBrains
    extensions, the Claude desktop app's local Code tab — keeps `~/.claude/sessions/<pid>.json` up to date with whether it
    is busy, waiting on you (and for what: input, a permission prompt) or done. It's the same file `claude agents` reads,
-   so the bar flips the instant Claude does. Red means it needs you, green with a check means it finished.
+   so the bar flips the instant Claude does. Its journal adds what it's doing right now ("Running swift test",
+   "Editing Hero.tsx"), the git branch, and usage limits with their reset time.
 2. **Session journals.** Codex (and older Claude Code) write every turn to disk as they go; a finished reply means done,
    a tool call with nothing running means waiting for your permission, an approval event means exactly that.
 3. **Notifications.** Anything that posts a macOS notification about an agent — the Claude app when a Code session

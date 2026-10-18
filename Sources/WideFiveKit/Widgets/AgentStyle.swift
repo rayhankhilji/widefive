@@ -8,12 +8,26 @@ enum AgentStyle {
     static let orange = NSColor(hex: "#F76B15")  // rate limited
     static let red = NSColor(hex: "#E5484D")     // error
 
+    /// Status colour for dots and edges.
     static func color(_ s: Agent.State, _ theme: Theme) -> NSColor {
         switch s {
         case .waiting: return amber
         case .done: return green
         case .limited: return orange
         case .failed: return red
+        case .working: return theme.text.withAlphaComponent(0.75)
+        case .idle: return theme.dim.withAlphaComponent(0.55)
+        }
+    }
+
+    /// Status colour for text: the deeper (step 11) shade on light themes so it stays readable on white.
+    static func textColor(_ s: Agent.State, _ theme: Theme) -> NSColor {
+        guard theme.isLight else { return color(s, theme) }
+        switch s {
+        case .waiting: return NSColor(hex: "#AD5700")
+        case .done: return NSColor(hex: "#18794E")
+        case .limited: return NSColor(hex: "#CC4E00")
+        case .failed: return NSColor(hex: "#CD2B31")
         case .working: return theme.text.withAlphaComponent(0.75)
         case .idle: return theme.dim.withAlphaComponent(0.55)
         }

@@ -100,7 +100,7 @@ public final class AgentsMode: StripMode, DemoStartable {
         var summary = "\(agents.count) \(agents.count == 1 ? "session" : "sessions")"
         if blocked > 0 { summary = "\(blocked) need\(blocked == 1 ? "s" : "") input" } else if finished > 0 { summary = "\(finished) done" }
         c.text("Agents", x: x0 + 2, y: 15, size: 11, color: theme.text, weight: .semibold)
-        c.text(summary, x: x0 + 2, y: 3.5, size: 9.5, color: blocked > 0 ? AgentStyle.amber : theme.dim, weight: .medium)
+        c.text(summary, x: x0 + 2, y: 3.5, size: 9.5, color: blocked > 0 ? AgentStyle.textColor(.waiting, theme) : theme.dim, weight: .medium)
         let headerW = max(Canvas.measure("Agents", size: 11, weight: .semibold), Canvas.measure(summary, size: 9.5, weight: .medium)) + 14
 
         let listX = x0 + headerW
@@ -172,7 +172,7 @@ public final class AgentsMode: StripMode, DemoStartable {
             AgentStyle.status(c, a.state, at: CGPoint(x: textX + 3, y: lineY + 6.5), size: 6)
             let (head, tail) = statusParts(a)
             let sx = textX + 11
-            let headColor = a.alerting ? AgentStyle.color(a.state, theme) : theme.text.withAlphaComponent(dim ? 0.5 : 0.75)
+            let headColor = a.alerting ? AgentStyle.textColor(a.state, theme) : theme.text.withAlphaComponent(dim ? 0.5 : 0.75)
             let hw = c.text(head, x: sx, y: lineY, size: Self.metaSize, color: headColor, weight: .medium, maxWidth: right - sx)
             if let tail, sx + hw + 4 < right {
                 c.text(" · " + tail, x: sx + hw, y: lineY, size: Self.metaSize, color: theme.dim, maxWidth: right - sx - hw)
