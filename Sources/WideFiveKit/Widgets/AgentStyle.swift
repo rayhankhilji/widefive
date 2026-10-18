@@ -7,7 +7,6 @@ enum AgentStyle {
     static let green = NSColor(hex: "#30A46C")   // done
     static let orange = NSColor(hex: "#F76B15")  // rate limited
     static let red = NSColor(hex: "#E5484D")     // error
-    static let claude = NSColor(hex: "#D97757")  // Claude Code's mascot
 
     static func color(_ s: Agent.State, _ theme: Theme) -> NSColor {
         switch s {
@@ -30,76 +29,28 @@ enum AgentStyle {
 
     // MARK: Marks
 
-    /// Clawd, Claude Code's mascot, exactly as its terminal banner draws it ("▐▛███▜▌ / ▝▜█████▛▘ / ▘▘ ▝▝"), 18×5 cells.
-    static let clawd: [String] = [
-        "000111111111111000",
-        "000110111111011000",
-        "011111111111111110",
-        "000111111111111000",
-        "000010100001010000",
-    ]
+    /// Every mark is square.
+    static func markWidth(_ m: Agent.Mark, height: CGFloat = 16) -> CGFloat { height }
 
-    /// Draws an agent's mark centred in `r` (which should be about square). `alpha` dims idle agents.
+    /// Draws an agent's icon centred in `r`. `alpha` dims idle agents.
     static func mark(_ c: Canvas, _ m: Agent.Mark, in r: CGRect, alpha: CGFloat = 1) {
+        let side = min(r.width, r.height)
+        let box = CGRect(x: (r.midX - side / 2).rounded(), y: (r.midY - side / 2).rounded(), width: side, height: side)
         c.faded(alpha) {
             switch m {
-            case .claudeCode: drawClawd(c, in: r)
-            case .codex: drawCodex(c, in: r)
+            case .official(let key):
+                if let img = AgentIcons.image(key) { c.image(img, in: box, radius: side * 0.23) } else { drawMonogram(c, "?", in: box) }
             case .appIcon(let bid):
                 if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid) {
-                    let side = min(r.width, r.height) + 2
-                    c.image(NSWorkspace.shared.icon(forFile: url.path), in: CGRect(x: r.midX - side / 2, y: r.midY - side / 2, width: side, height: side))
+                    // macOS app icons carry their own margin; draw them a touch larger so they match the full-bleed ones.
+                    let big = box.insetBy(dx: -side * 0.1, dy: -side * 0.1)
+                    c.image(NSWorkspace.shared.icon(forFile: url.path), in: big)
                 } else {
-                    drawMonogram(c, "?", in: r)
+                    drawMonogram(c, "?", in: box)
                 }
-            case .monogram(let l): drawMonogram(c, l, in: r)
+            case .monogram(let l): drawMonogram(c, l, in: box)
             }
         }
-    }
-
-    /// Width a mark wants at `height` (Clawd is wide; everything else is square).
-    static func markWidth(_ m: Agent.Mark, height: CGFloat = 16) -> CGFloat {
-        if case .claudeCode = m { return (height * 1.75).rounded() }
-        return height
-    }
-
-    /// Terminal block characters are twice as tall as they are wide, so each Clawd cell is a 1:2 pixel.
-    static func drawClawd(_ c: Canvas, in r: CGRect) {
-        let cols = CGFloat(clawd[0].count), rows = CGFloat(clawd.count)
-        let ph = (min(r.height / rows, r.width / cols * 2) * 2).rounded(.down) / 2   // whole half-points: crisp at 2x
-        let pw = ph / 2
-        let w = cols * pw, h = rows * ph
-        let x0 = (r.midX - w / 2) , y0 = (r.midY - h / 2).rounded()
-        c.cg.setFillColor(claude.cgColor)
-        for (ri, row) in clawd.enumerated() {
-            for (ci, ch) in row.enumerated() where ch == "1" {
-                c.cg.fill(CGRect(x: x0 + CGFloat(ci) * pw, y: y0 + (rows - 1 - CGFloat(ri)) * ph, width: pw, height: ph))
-            }
-        }
-    }
-
-    /// Codex: the ">_" prompt it greets you with, on a solid rounded square (black on white / white on black).
-    static func drawCodex(_ c: Canvas, in r: CGRect) {
-        let side = min(r.width, r.height)
-        let box = CGRect(x: r.midX - side / 2, y: r.midY - side / 2, width: side, height: side)
-        let fg = c.theme.isLight ? NSColor(white: 0.08, alpha: 1) : NSColor(white: 0.96, alpha: 1)
-        let bg = c.theme.isLight ? NSColor.white : NSColor(white: 0.06, alpha: 1)
-        c.roundRect(box, radius: side * 0.26, fill: fg)
-        // ">" as two strokes and "_" as a bar, drawn rather than typeset so it stays sharp at 16pt.
-        let s = side / 16
-        c.cg.saveGState()
-        c.cg.setStrokeColor(bg.cgColor)
-        c.cg.setLineWidth(1.6 * s)
-        c.cg.setLineCap(.round)
-        c.cg.setLineJoin(.round)
-        c.cg.move(to: CGPoint(x: box.minX + 4.2 * s, y: box.minY + 11 * s))
-        c.cg.addLine(to: CGPoint(x: box.minX + 7.4 * s, y: box.minY + 8 * s))
-        c.cg.addLine(to: CGPoint(x: box.minX + 4.2 * s, y: box.minY + 5 * s))
-        c.cg.strokePath()
-        c.cg.move(to: CGPoint(x: box.minX + 8.8 * s, y: box.minY + 5 * s))
-        c.cg.addLine(to: CGPoint(x: box.minX + 12 * s, y: box.minY + 5 * s))
-        c.cg.strokePath()
-        c.cg.restoreGState()
     }
 
     static func drawMonogram(_ c: Canvas, _ letter: String, in r: CGRect) {

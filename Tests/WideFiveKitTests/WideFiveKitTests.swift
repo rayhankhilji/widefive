@@ -656,8 +656,13 @@ final class AgentDetailTests: XCTestCase {
     }
 
     func testMarks() {
-        XCTAssertEqual(Agent.Mark.for(name: "Claude Code", appBundleId: nil), .claudeCode)
-        XCTAssertEqual(Agent.Mark.for(name: "Codex", appBundleId: nil), .codex)
-        XCTAssertEqual(Agent.Mark.for(name: "Gemini CLI", appBundleId: nil), .monogram("G"))
+        XCTAssertEqual(Agent.Mark.for(name: "Claude Code", appBundleId: nil), .official("claude-code"))
+        XCTAssertEqual(Agent.Mark.for(name: "Codex", appBundleId: "com.openai.codex"), .official("codex"))
+        XCTAssertEqual(Agent.Mark.for(name: "Gemini CLI", appBundleId: nil), .official("gemini-cli"))
+        XCTAssertEqual(Agent.Mark.for(name: "Cursor Agent", appBundleId: nil), .official("cursor"))
+        XCTAssertEqual(Agent.Mark.for(name: "Aider", appBundleId: nil), .monogram("A"))
+        // Every official icon decodes.
+        for key in AgentIcons.keys { XCTAssertNotNil(AgentIcons.image(key), key) }
+        for (_, key) in Agent.Mark.officialKeys { XCTAssertNotNil(AgentIcons.image(key), key) }
     }
 }

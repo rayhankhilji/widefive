@@ -159,9 +159,9 @@ public enum AgentHooks {
             case .codex: return try installCodex(path)
             case .cursor: try installCursor(path)
             }
-            return "✓ \(kind.title) hooks installed — restart running sessions to pick them up"
+            return "\(kind.title) hooks installed — restart running sessions to pick them up"
         } catch {
-            return "⚠️ \(kind.title): \(error.localizedDescription)"
+            return "\(kind.title): \(error.localizedDescription)"
         }
     }
 
@@ -172,9 +172,9 @@ public enum AgentHooks {
             case .codex: try uninstallCodex()
             case .cursor: try uninstallCursor()
             }
-            return "✓ \(kind.title) hooks removed"
+            return "\(kind.title) hooks removed"
         } catch {
-            return "⚠️ \(kind.title): \(error.localizedDescription)"
+            return "\(kind.title): \(error.localizedDescription)"
         }
     }
 
@@ -257,13 +257,13 @@ public enum AgentHooks {
 
     public static func codexConfig(adding path: String, to text: String) -> (String, String) {
         let line = "notify = [\"\(path)\", \"codex\"]"
-        if text.contains("widefive-agent-hook") { return (text, "✓ Codex hook already installed") }
+        if text.contains("widefive-agent-hook") { return (text, "Codex hook already installed") }
         let hasNotify = text.split(separator: "\n").contains { $0.trimmingCharacters(in: .whitespaces).hasPrefix("notify") }
         if hasNotify {
-            return (text, "⚠️ ~/.codex/config.toml already has a notify setting — point it at \(path) codex by hand")
+            return (text, "~/.codex/config.toml already has a notify setting — point it at \(path) codex by hand")
         }
         let body = text.isEmpty || text.hasSuffix("\n") ? text : text + "\n"
-        return ("# widefive: tell the Touch Bar when a turn finishes\n\(line)\n" + body, "✓ Codex hook installed — restart codex to pick it up")
+        return ("# widefive: tell the Touch Bar when a turn finishes\n\(line)\n" + body, "Codex hook installed — restart codex to pick it up")
     }
 
     public static func codexConfig(removingFrom text: String) -> String {

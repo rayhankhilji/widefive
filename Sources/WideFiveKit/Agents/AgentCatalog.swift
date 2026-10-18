@@ -18,20 +18,28 @@ public struct Agent: Equatable {
         case idle
     }
 
-    /// The mark drawn for an agent: the real Claude Code and Codex marks, the app's own icon, or a monogram.
+    /// The icon drawn for an agent: the installed app's own icon, an official icon embedded in widefive, or a monogram.
     public enum Mark: Equatable {
-        case claudeCode
-        case codex
+        case official(String)
         case appIcon(String)
         case monogram(String)
 
+        /// Agent name → official icon key (see AgentIcons).
+        static let officialKeys: [(prefix: String, key: String)] = [
+            ("claude code", "claude-code"), ("codex", "codex"), ("chatgpt", "chatgpt"), ("gemini cli", "gemini-cli"),
+            ("gemini", "gemini"), ("grok", "grok"), ("cursor", "cursor"), ("copilot", "github"), ("claude", "claude"),
+        ]
+
         public static func `for`(name: String, appBundleId: String?) -> Mark {
             let n = name.lowercased()
-            if n.hasPrefix("claude code") { return .claudeCode }
-            if n.hasPrefix("codex") { return .codex }
+            // Claude Code and Codex always use their own product icon, wherever they run (terminal, IDE, web, app).
+            if n.hasPrefix("claude code") { return .official("claude-code") }
+            if n.hasPrefix("codex") { return .official("codex") }
+            // Desktop apps: the real installed icon looks right next to the Dock.
             if let b = appBundleId, NSWorkspace.shared.urlForApplication(withBundleIdentifier: b) != nil, AgentCatalog.appSpec(bundleId: b, name: nil) != nil {
                 return .appIcon(b)
             }
+            if let k = officialKeys.first(where: { n.hasPrefix($0.prefix) })?.key { return .official(k) }
             return .monogram(String(name.prefix(1)).uppercased())
         }
     }
