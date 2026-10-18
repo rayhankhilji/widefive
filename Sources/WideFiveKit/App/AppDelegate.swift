@@ -7,6 +7,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var presenter: TouchBarPresenter?
     var statusItem: NSStatusItem!
     var previewWindow: NSWindow?
+    private var agentMenuKey = ""
     public var openPreviewOnLaunch = false
 
     public override init() { super.init() }
@@ -56,6 +57,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         registerHotKeys()
         setupUpdater()
         setupAgents()
+        checkAccessibility()
         if let e = store.lastError { controller.toast("⚠️ \(e)") }
         if openPreviewOnLaunch || !TouchBarPresenter.isSupported { showPreview() }
     }
@@ -135,14 +137,32 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // MARK: Accessibility
+
+    /// Shortcut buttons, window raising and notification reading all need Accessibility. Say so plainly at launch
+    /// instead of letting buttons silently do nothing.
+    private func checkAccessibility() {
+        guard !Keys.ensureAccessibility(prompt: false) else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            guard !Keys.ensureAccessibility(prompt: false) else { return }
+            self?.controller.toast("widefive needs Accessibility — if it's already on, switch it off and on again")
+            Keys.ensureAccessibility(prompt: true)
+            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+        }
+    }
+
     // MARK: Coding agents
 
     private func setupAgents() {
         let m = AgentMonitor.shared
         m.config = store.config.agents
         m.onChange = { [weak self] in
-            self?.controller.setNeedsDisplay()
-            self?.rebuildMenu()
+            guard let self else { return }
+            self.controller.setNeedsDisplay()
+            // Rebuild the menu only when something it shows changed, not on every scan.
+            let key = m.agents.map { "\($0.id)|\($0.number)|\($0.state.rawValue)|\($0.statusLine)|\($0.whereLine)" }.joined(separator: "\n")
+                + (m.hint?.text ?? "")
+            if key != self.agentMenuKey { self.agentMenuKey = key; self.rebuildMenu() }
         }
         m.onAttention = { [weak self] a in
             guard let self else { return }
@@ -182,6 +202,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(item("Toast When an Agent Needs You", #selector(toggleAgentToast), state: store.config.agents.toast))
         menu.addItem(item("Play a Sound Too", #selector(toggleAgentSound), state: store.config.agents.sound))
         menu.addItem(item("Look Through Browser Tabs", #selector(toggleAgentBrowsers), state: store.config.agents.scanBrowsers))
+        let cloud = item("Show Cloud Sessions (uses your Claude Code sign-in)", #selector(toggleCloudSessions), state: store.config.agents.cloudSessions)
+        cloud.toolTip = "Reads the sign-in Claude Code keeps in your Keychain (macOS asks once) to list your claude.ai/code sessions and their live status. Read-only."
+        menu.addItem(cloud)
         return menu
     }
 
@@ -200,6 +223,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleAgentToast() { mutateConfig { $0.agents.toast.toggle() } }
     @objc private func toggleAgentSound() { mutateConfig { $0.agents.sound.toggle() } }
     @objc private func toggleAgentBrowsers() { mutateConfig { $0.agents.scanBrowsers.toggle() } }
+    @objc private func toggleCloudSessions() {
+        let on = !store.config.agents.cloudSessions
+        mutateConfig { $0.agents.cloudSessions = on }
+        if on { controller.toast("Cloud sessions on — click Always Allow when macOS asks about Claude Code-credentials") }
+    }
 
     // MARK: Updates
 

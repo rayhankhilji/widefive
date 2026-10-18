@@ -104,6 +104,8 @@ public struct AgentsConfig: Codable, Equatable {
     public var sites: [String: String] = [:]
     /// Regular expressions; a browser tab whose title matches counts as needing you. Empty = built-in list.
     public var attentionTitles: [String] = []
+    /// Opt-in: show Claude Code cloud sessions (claude.ai/code) using the sign-in Claude Code keeps in your Keychain.
+    public var cloudSessions: Bool = false
 
     public init() {}
 
@@ -119,6 +121,7 @@ public struct AgentsConfig: Codable, Equatable {
         apps = try c.decodeIfPresent([String: String].self, forKey: .apps) ?? [:]
         sites = try c.decodeIfPresent([String: String].self, forKey: .sites) ?? [:]
         attentionTitles = try c.decodeIfPresent([String].self, forKey: .attentionTitles) ?? []
+        cloudSessions = try c.decodeIfPresent(Bool.self, forKey: .cloudSessions) ?? false
     }
 }
 

@@ -175,6 +175,7 @@ public final class StripController {
         claimed.removeAll()
         exitTouch = nil
         chrome.cancelAll()
+        gestures.reset()
         current = m
         m.activate(ctx)
         lastRefresh = 0
@@ -295,7 +296,10 @@ public final class StripController {
             setNeedsDisplay()
             return
         }
-        let consumedByGesture = current.allowsGestures && gestures.ended(t)
+        // Always tell the gesture engine a finger lifted, even if this mode ignores gestures: the touch may have begun
+        // in one that didn't (a long-press that opened another mode), and a lingering touch breaks every later tap.
+        let consumedByGesture: Bool
+        if current.allowsGestures { consumedByGesture = gestures.ended(t) } else { gestures.forget(t.id); consumedByGesture = false }
         if claimed.remove(t.id) != nil {
             if consumedByGesture { current.touchCancelled(t) } else { current.touchEnded(t) }
         }

@@ -23,7 +23,21 @@ public final class GestureEngine {
     /// Returns true when the gesture engine has taken over the current touch group (mode should get cancels).
     public var isClaiming: Bool { claimed }
 
+    /// Forget a touch without acting on it (it ended while a mode without gestures was showing).
+    public func forget(_ id: Int) {
+        touches[id] = nil
+        if touches.isEmpty { claimed = false; maxFingers = 0 }
+    }
+
+    /// Drop all tracked touches (mode switches, wake). A touch whose end we never heard about must never linger:
+    /// it would make every later single tap look like a two-finger gesture.
+    public func reset() {
+        touches.removeAll(); claimed = false; maxFingers = 0; moved = false
+    }
+
     public func began(_ t: StripTouch) -> Bool {
+        // Self-heal: a finger that hasn't reported anything for a while is a lost touch, not one still on the glass.
+        touches = touches.filter { t.time - $0.value.time < 4 }
         if touches.isEmpty { maxFingers = 0; claimed = false; moved = false; groupStart = t.time }
         touches[t.id] = t
         maxFingers = max(maxFingers, touches.count)

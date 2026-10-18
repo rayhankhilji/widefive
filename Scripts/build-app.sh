@@ -52,7 +52,17 @@ FW="$APP_PATH/Contents/Frameworks/Sparkle.framework"
 "${SIGN[@]}" "$FW/Versions/B/Autoupdate"
 "${SIGN[@]}" "$FW/Versions/B/Updater.app"
 "${SIGN[@]}" "$FW"
-"${SIGN[@]}" --entitlements "$ROOT/Resources/widefive.entitlements" "$APP_PATH"
+# Ad-hoc code is otherwise identified by its hash, so every update looked like a new app to macOS and silently lost
+# its Accessibility / Automation permissions. Pin the designated requirement to the bundle id so grants carry over.
+APP_SIGN=("${SIGN[@]}")
+if [[ "$IDENTITY" == "-" ]]; then
+  APP_SIGN+=(--requirements "=designated => identifier \"$BUNDLE_ID\"")
+fi
+"${APP_SIGN[@]}" --entitlements "$ROOT/Resources/widefive.entitlements" "$APP_PATH"
+if [[ "$IDENTITY" == "-" ]]; then
+  DR="$(codesign -d -r- "$APP_PATH" 2>&1 || true)"
+  [[ "$DR" == *"designated => identifier \"$BUNDLE_ID\""* ]] || die "designated requirement not pinned to $BUNDLE_ID: $DR"
+fi
 codesign --verify --deep --strict "$APP_PATH"
 
 bold "✓ $APP_PATH  ($(lipo -archs "$APP_PATH/Contents/MacOS/$APP_NAME"), $(du -sh "$APP_PATH" | cut -f1))"

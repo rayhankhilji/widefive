@@ -55,16 +55,27 @@ enum AgentStyle {
             case .official(let key):
                 if let img = AgentIcons.image(key) { c.image(img, in: box, radius: side * 0.23) } else { drawMonogram(c, "?", in: box) }
             case .appIcon(let bid):
-                if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid) {
+                if let icon = appIcon(bid) {
                     // macOS app icons carry their own margin; draw them a touch larger so they match the full-bleed ones.
-                    let big = box.insetBy(dx: -side * 0.1, dy: -side * 0.1)
-                    c.image(NSWorkspace.shared.icon(forFile: url.path), in: big)
+                    c.image(icon, in: box.insetBy(dx: -side * 0.1, dy: -side * 0.1))
                 } else {
                     drawMonogram(c, "?", in: box)
                 }
             case .monogram(let l): drawMonogram(c, l, in: box)
             }
         }
+    }
+
+    private static var iconCache: [String: NSImage] = [:]
+
+    /// Installed app icons, looked up once (Launch Services + IconServices are far too slow to hit every frame).
+    static func appIcon(_ bundleId: String) -> NSImage? {
+        if let i = iconCache[bundleId] { return i }
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) else { return nil }
+        let icon = NSWorkspace.shared.icon(forFile: url.path)
+        icon.size = NSSize(width: 64, height: 64)
+        iconCache[bundleId] = icon
+        return icon
     }
 
     static func drawMonogram(_ c: Canvas, _ letter: String, in r: CGRect) {
@@ -84,9 +95,6 @@ enum AgentStyle {
         switch s {
         case .working:
             spinner(c, at: p, radius: size / 2 + 0.5, color: col)
-        case .waiting:
-            let a = CGFloat(0.65 + 0.35 * (0.5 + 0.5 * sin(c.time * 3.2)))
-            c.circle(center: p, radius: size / 2, col.withAlphaComponent(a))
         default:
             c.circle(center: p, radius: size / 2, col)
         }
@@ -99,9 +107,9 @@ enum AgentStyle {
         c.cg.setStrokeColor(color.withAlphaComponent(0.22).cgColor)
         c.cg.addArc(center: p, radius: radius, startAngle: 0, endAngle: .pi * 2, clockwise: false)
         c.cg.strokePath()
-        let a = CGFloat(c.time * 5).truncatingRemainder(dividingBy: .pi * 2)
+        // A fixed quarter arc: reads as "in progress" without needing the bar to animate.
         c.cg.setStrokeColor(color.cgColor)
-        c.cg.addArc(center: p, radius: radius, startAngle: -a, endAngle: -a - .pi * 0.6, clockwise: true)
+        c.cg.addArc(center: p, radius: radius, startAngle: .pi / 2, endAngle: -.pi / 6, clockwise: true)
         c.cg.strokePath()
         c.cg.restoreGState()
     }

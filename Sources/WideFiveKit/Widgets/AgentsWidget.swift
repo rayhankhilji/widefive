@@ -9,7 +9,9 @@ final class AgentsWidget: Widget {
 
     private var cells: [(frame: CGRect, agent: Agent?)] = []
 
-    var animating: Bool { AgentMonitor.shared.agents.contains { $0.state == .working || $0.state == .waiting } }
+    /// Never asks for 60 fps: the home bar's twice-a-second refresh is plenty for status dots, and a constantly
+    /// animating bar starves touch handling.
+    var animating: Bool { false }
 
     private struct Cell { var agent: Agent?; var label: String?; var width: CGFloat }
 
