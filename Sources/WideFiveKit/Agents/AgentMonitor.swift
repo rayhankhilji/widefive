@@ -87,6 +87,53 @@ public final class AgentMonitor {
         }
     }
 
+    /// One synchronous scan (tests, `widefive --agents`). Does not publish or fire callbacks.
+    public func scanNow() -> [Agent] {
+        let cfg = config
+        return queue.sync { collect(cfg) }
+    }
+
+    /// Human-readable dump of what a scan sees, for `widefive --agents` and bug reports.
+    public func diagnostics() -> String {
+        var out: [String] = []
+        let procs = ProcessScanner.list()
+        out.append("widefive agents diagnostics — \(Date())")
+        out.append("accessibility: \(AXIsProcessTrusted() ? "granted" : "NOT granted (banners, badges and window raising need it)")")
+        out.append("processes: \(procs.count) owned by uid \(getuid())")
+        var matched = 0
+        for p in procs {
+            let args = ProcessScanner.arguments(p.pid)
+            if let spec = AgentCatalog.terminalSpec(arguments: args, comm: p.comm, extra: config.processes) {
+                matched += 1
+                let cwd = ProcessScanner.cwd(p.pid) ?? "?"
+                let host = ProcessScanner.hostApp(of: p.pid, in: Dictionary(procs.map { ($0.pid, $0) }, uniquingKeysWith: { a, _ in a }))
+                out.append("  pid \(p.pid) \(spec.name) comm=\(p.comm) tty=\(p.tty ?? "-") cwd=\(cwd) host=\(host?.localizedName ?? "-") argv=\(args.prefix(3).joined(separator: " "))")
+                if spec.key == "claude" {
+                    let files = AgentTranscripts.claudeTranscripts(cwd: cwd, since: Date(timeIntervalSince1970: p.startTime - 5))
+                    out.append("    journals: \(files.map { $0.lastPathComponent })")
+                    if let f = files.first, let v = AgentTranscripts.claudeVerdict(file: f) { out.append("    last entry: \(v.phase) at \(v.at) title=\(v.title ?? "-")") }
+                } else if spec.key == "codex" {
+                    let files = AgentTranscripts.codexTranscripts(since: Date(timeIntervalSince1970: p.startTime - 5)).filter { AgentTranscripts.codexCwd(file: $0) == cwd }
+                    out.append("    rollouts: \(files.map { $0.lastPathComponent })")
+                    if let f = files.first, let v = AgentTranscripts.codexVerdict(file: f) { out.append("    last entry: \(v.phase) at \(v.at) title=\(v.title ?? "-")") }
+                }
+            }
+        }
+        out.append("terminal agents matched: \(matched)")
+        let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
+        let agentApps = apps.compactMap { a in AgentCatalog.appSpec(bundleId: a.bundleIdentifier, name: a.localizedName, extra: config.apps).map { "\($0.name) (\(a.bundleIdentifier ?? "?"))" } }
+        out.append("agent apps running: \(agentApps)")
+        out.append("dock badges: \(AppScripting.dockBadges())")
+        let tabs = config.scanBrowsers ? AppScripting.browserTabs() : []
+        out.append("browser tabs: \(tabs.count)")
+        for t in tabs where AgentCatalog.siteSpec(url: t.url, extra: config.sites) != nil { out.append("  \(t.bundleId) w\(t.window) t\(t.index) \(t.url) — \(t.title)") }
+        out.append("banners on screen: \(NotificationBanners.current())")
+        out.append("hook events: \(AgentHooks.events().count)")
+        out.append("")
+        for a in scanNow() { out.append("→ \(a.kind) \(a.name) [\(a.state)] via \(a.signal): \(a.detail)\(a.message.map { " — " + $0 } ?? "")") }
+        return out.joined(separator: "\n")
+    }
+
     // MARK: Collecting (background queue)
 
     private func collect(_ cfg: AgentsConfig) -> [Agent] {

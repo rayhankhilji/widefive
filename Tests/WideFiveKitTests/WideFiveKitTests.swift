@@ -367,3 +367,82 @@ final class BannerMatchTests: XCTestCase {
         XCTAssertNil(m("Slack", "Slack · hey"))
     }
 }
+
+final class ProcessScannerTests: XCTestCase {
+    func testSeesItself() throws {
+        let me = getpid()
+        let list = ProcessScanner.list()
+        let mine = try XCTUnwrap(list.first { $0.pid == me })
+        XCTAssertEqual(mine.ppid, getppid())
+        XCTAssertFalse(mine.comm.isEmpty)
+        XCTAssertGreaterThan(mine.startTime, 1_600_000_000)
+        XCTAssertFalse(ProcessScanner.arguments(me).isEmpty)
+        XCTAssertEqual(ProcessScanner.cwd(me), URL(fileURLWithPath: FileManager.default.currentDirectoryPath).resolvingSymlinksInPath().path)
+        XCTAssertGreaterThan(ProcessScanner.cpuTime(me) ?? 0, 0)
+        XCTAssertTrue(ProcessScanner.isAlive(me))
+        XCTAssertFalse(ProcessScanner.isAlive(2_000_000_000))
+        XCTAssertNotNil(ProcessScanner.path(me))
+    }
+}
+
+final class AgentMonitorEndToEndTests: XCTestCase {
+    /// A process called `claude` sitting in a project whose Claude Code journal ends with a finished reply
+    /// must show up as a waiting Claude Code agent, matched to that journal, with no hooks or setup involved.
+    func testFakeClaudeProcessIsFoundAndReadFromItsJournal() throws {
+        let fm = FileManager.default
+        // The kernel reports resolved paths (/private/var/…), so build everything from the resolved folder.
+        let root = fm.temporaryDirectory.appendingPathComponent("widefive-e2e-\(UUID().uuidString)").resolvingSymlinksInPath()
+        let project = root.appendingPathComponent("my-app")
+        let bin = root.appendingPathComponent("bin")
+        try fm.createDirectory(at: project, withIntermediateDirectories: true)
+        try fm.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        // The fake agent: a symlink named `claude` to /bin/sleep, run from the project folder.
+        let exe = bin.appendingPathComponent("claude")
+        try fm.createSymbolicLink(at: exe, withDestinationURL: URL(fileURLWithPath: "/bin/sleep"))
+        let proc = Process()
+        proc.executableURL = exe
+        proc.arguments = ["300"]
+        proc.currentDirectoryURL = project
+        try proc.run()
+        defer { proc.terminate() }
+
+        // Its journal, in the folder layout Claude Code uses.
+        let projects = root.appendingPathComponent("projects")
+        AgentTranscripts.claudeProjects = projects
+        let jdir = projects.appendingPathComponent(AgentTranscripts.claudeProjectNames(for: project.path)[0])
+        try fm.createDirectory(at: jdir, withIntermediateDirectories: true)
+        let journal = jdir.appendingPathComponent("11111111-2222-3333-4444-555555555555.jsonl")
+        let now = ISO8601DateFormatter().string(from: Date())
+        try [
+            #"{"type":"user","timestamp":"\#(now)","cwd":"\#(project.path)","message":{"role":"user","content":"ship the agent strip"}}"#,
+            #"{"type":"assistant","timestamp":"\#(now)","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"Shipped. Anything else?"}]}}"#,
+        ].joined(separator: "\n").appending("\n").write(to: journal, atomically: true, encoding: .utf8)
+
+        let monitor = AgentMonitor()
+        var cfg = AgentsConfig()
+        cfg.scanBrowsers = false
+        monitor.config = cfg
+        usleep(300_000) // let the child exec so the kernel reports its name and cwd
+        let agents = monitor.scanNow()
+        let me = try XCTUnwrap(agents.first { $0.id == "proc:\(proc.processIdentifier)" }, "agents seen: \(agents.map { "\($0.id) \($0.name)" })")
+        XCTAssertEqual(me.name, "Claude Code")
+        XCTAssertEqual(me.kind, .terminal)
+        XCTAssertEqual(me.signal, "transcript")
+        XCTAssertEqual(me.state, .waiting)
+        XCTAssertEqual(me.message, "Shipped. Anything else?")
+        XCTAssertTrue(me.detail.hasPrefix("my-app"), me.detail)
+        XCTAssertTrue(me.detail.contains("ship the agent strip"), me.detail)
+
+        // A new prompt appended to the journal flips it to working on the next scan.
+        usleep(20_000)
+        let h = try FileHandle(forWritingTo: journal)
+        try h.seekToEnd()
+        try h.write(contentsOf: Data(#"{"type":"user","timestamp":"\#(now)","message":{"role":"user","content":"now add tests"}}"#.appending("\n").utf8))
+        try h.close()
+        let again = monitor.scanNow().first { $0.id == me.id }
+        XCTAssertEqual(again?.state, .working)
+        XCTAssertEqual(again?.signal, "transcript")
+    }
+}

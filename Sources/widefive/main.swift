@@ -35,6 +35,24 @@ if let i = args.firstIndex(of: "--frames"), args.count > i + 3 {
     exit(0)
 }
 
+if let i = args.firstIndex(of: "--agents") {
+    // Print what the coding-agent monitor sees, then (optionally) watch for changes for N seconds.
+    _ = NSApplication.shared
+    let store = ConfigStore()
+    store.load()
+    AgentMonitor.shared.config = store.config.agents
+    print(AgentMonitor.shared.diagnostics())
+    let secs = args.count > i + 1 ? Double(args[i + 1]) ?? 0 : 0
+    if secs > 0 {
+        print("\nwatching for \(Int(secs))s — change something and see what fires…")
+        AgentMonitor.shared.onChange = { for a in AgentMonitor.shared.agents { print("  \(a.name) [\(a.state)] via \(a.signal): \(a.detail)\(a.message.map { " — " + $0 } ?? "")") } }
+        AgentMonitor.shared.onAttention = { a in print("🔔 \(a.name) needs you — \(a.message ?? a.detail)") }
+        AgentMonitor.shared.start()
+        RunLoop.main.run(until: Date().addingTimeInterval(secs))
+    }
+    exit(0)
+}
+
 if args.contains("--print-default-config") {
     print(String(data: try Config.default.encoded(), encoding: .utf8)!)
     exit(0)
