@@ -16,7 +16,8 @@ step "Zipping"
 ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP"
 
 step "Staging DMG"
-TMP="$(mktemp -d)"; trap 'hdiutil detach "$MNT" -force >/dev/null 2>&1 || true; rm -rf "$TMP"' EXIT
+MNT=""
+TMP="$(mktemp -d)"; trap '[[ -n "$MNT" ]] && hdiutil detach "$MNT" -force >/dev/null 2>&1; rm -rf "$TMP"' EXIT
 STAGE="$TMP/stage"; mkdir -p "$STAGE/.background"
 ditto "$APP_PATH" "$STAGE/$APP_NAME.app"
 ln -s /Applications "$STAGE/Applications"
@@ -27,7 +28,14 @@ cp "$ROOT/Resources/AppIcon.icns" "$STAGE/.VolumeIcon.icns"
 
 RW="$TMP/rw.dmg"
 SIZE_MB=$(( $(du -sm "$STAGE" | cut -f1) + 20 ))
-hdiutil create -quiet -srcfolder "$STAGE" -volname "$VOLNAME" -fs HFS+ -format UDRW -size "${SIZE_MB}m" "$RW"
+# hdiutil intermittently fails with "Resource busy" on CI runners; retry, and show its real error if it keeps failing.
+for attempt in 1 2 3 4; do
+  if HDI_ERR="$(hdiutil create -quiet -srcfolder "$STAGE" -volname "$VOLNAME" -fs HFS+ -format UDRW -size "${SIZE_MB}m" "$RW" 2>&1)"; then break; fi
+  warn "hdiutil create failed (attempt $attempt): $HDI_ERR"
+  rm -f "$RW"
+  (( attempt == 4 )) && die "hdiutil create failed: $HDI_ERR"
+  sleep $(( attempt * 5 ))
+done
 MNT="$(hdiutil attach "$RW" -readwrite -noverify -noautoopen -nobrowse | awk -F'\t' '/\/Volumes\// {print $NF; exit}')"
 [[ -d "$MNT" ]] || die "could not mount $RW"
 command -v SetFile >/dev/null && SetFile -a C "$MNT" || true
