@@ -40,7 +40,7 @@ jobs:
         run: |
           mkdir -p out
           swift run widefive --snapshot agents:demo out/agents.png 2 1004
-          swift run widefive --snapshot home out/home.png 1 1004
+          swift run widefive --snapshot home:demo out/home.png 1 1004
 
       - name: Upload renders and logs
         if: always()

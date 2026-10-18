@@ -52,7 +52,12 @@ public enum Snapshot {
         let size = CGSize(width: width, height: 30)
         // One throwaway frame so modes learn the real strip width before the demo starts.
         controller.render(gc.cgContext, size: size)
-        if demo { (controller.current as? DemoStartable)?.startDemo() }
+        if demo {
+            // Demo renders show a few coding agents on the home bar / Agents mode without any running.
+            AgentMonitor.shared.demoAgents = AgentMonitor.demoList()
+            AgentMonitor.shared.scan()
+            (controller.current as? DemoStartable)?.startDemo()
+        }
         rawDraw? { gc.cgContext.clear(CGRect(origin: .zero, size: size)); controller.render(gc.cgContext, size: size) }
         let dt = 1.0 / 60
         var t = 0.0

@@ -98,6 +98,8 @@ The Mario-style one: ? blocks, mushrooms, stars, breakable bricks, enemies to st
 
 **Launcher** (<kbd>⌃⌥⌘Space</kbd>): every mode, one swipe away.
 
+<img src="docs/media/stills/agents.png" width="100%" alt="Agents mode: Claude Code waiting for permission, a Codex tab waiting, Gemini CLI and Cursor working">
+
 **It watches your coding agents.** Claude Code and Codex in a terminal, Cursor, the Claude and ChatGPT apps, Devin, Grok,
 and web agents in Chrome, Safari, Arc, Brave or Edge (Claude Code on the web, Codex, Devin, Jules, Copilot, Lovable, Bolt…).
 Each one gets a chip on the right of the home bar. The moment one stops and waits for you (a permission prompt, a question,
