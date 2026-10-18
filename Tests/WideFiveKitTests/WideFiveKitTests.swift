@@ -258,7 +258,7 @@ final class AgentTranscriptTests: XCTestCase {
         XCTAssertEqual(pending.phase, .toolPending("Bash"))
         XCTAssertEqual(pending.title, "Add the agent strip")
         XCTAssertEqual(pending.lastText, "Sure, let me look.")
-        XCTAssertEqual(pending.at.timeIntervalSince1970, 1792490406, accuracy: 1)
+        XCTAssertEqual(pending.at.timeIntervalSince1970, 1792317606, accuracy: 1)
 
         let result = lines + [#"{"type":"user","timestamp":"2026-10-18T10:00:09.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]},"toolUseResult":{"stdout":"ok"}}"#]
         XCTAssertEqual(AgentTranscripts.claudeVerdict(lines: result, file: file)?.phase, .working)
