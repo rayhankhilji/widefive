@@ -53,10 +53,18 @@ public enum AgentTranscripts {
     // MARK: Claude Code
 
     /// Folder names Claude Code may use for a cwd (it has used both "slashes only" and "every non-alphanumeric").
+    /// /tmp and /var are really /private/tmp and /private/var; the kernel reports one spelling and tools the other.
     public static func claudeProjectNames(for cwd: String) -> [String] {
-        let slashes = cwd.replacingOccurrences(of: "/", with: "-")
-        let all = String(cwd.map { $0.isLetter || $0.isNumber ? $0 : "-" })
-        return slashes == all ? [slashes] : [all, slashes]
+        var paths = [cwd]
+        if cwd.hasPrefix("/private/") { paths.append(String(cwd.dropFirst("/private".count))) }
+        else if cwd.hasPrefix("/tmp") || cwd.hasPrefix("/var") || cwd.hasPrefix("/etc") { paths.append("/private" + cwd) }
+        var out: [String] = []
+        for p in paths {
+            let all = String(p.map { $0.isLetter || $0.isNumber ? $0 : "-" })
+            let slashes = p.replacingOccurrences(of: "/", with: "-")
+            for n in [all, slashes] where !out.contains(n) { out.append(n) }
+        }
+        return out
     }
 
     /// Transcript files for a cwd, newest first. `since` filters out sessions that ended before the process started.

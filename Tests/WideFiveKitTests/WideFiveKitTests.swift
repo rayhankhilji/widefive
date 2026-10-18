@@ -248,6 +248,8 @@ final class AgentTranscriptTests: XCTestCase {
     func testClaudeProjectFolderNames() {
         XCTAssertEqual(AgentTranscripts.claudeProjectNames(for: "/Users/me/code/app"), ["-Users-me-code-app"])
         XCTAssertEqual(AgentTranscripts.claudeProjectNames(for: "/Users/me/.config/x_y"), ["-Users-me--config-x-y", "-Users-me-.config-x_y"])
+        XCTAssertEqual(AgentTranscripts.claudeProjectNames(for: "/private/tmp/p"), ["-private-tmp-p", "-tmp-p"])
+        XCTAssertEqual(AgentTranscripts.claudeProjectNames(for: "/var/x"), ["-var-x", "-private-var-x"])
     }
 
     func testClaudeTurnDoneAndToolPending() throws {
@@ -408,10 +410,13 @@ final class AgentMonitorEndToEndTests: XCTestCase {
         try proc.run()
         defer { proc.terminate() }
 
-        // Its journal, in the folder layout Claude Code uses.
+        // Its journal, in the folder layout Claude Code uses, named from the cwd exactly as the kernel reports it.
+        usleep(300_000) // let the child exec so the kernel reports its name and cwd
+        let kernelCwd = try XCTUnwrap(ProcessScanner.cwd(proc.processIdentifier))
+        XCTAssertTrue(kernelCwd.hasSuffix("/my-app"), kernelCwd)
         let projects = root.appendingPathComponent("projects")
         AgentTranscripts.claudeProjects = projects
-        let jdir = projects.appendingPathComponent(AgentTranscripts.claudeProjectNames(for: project.path)[0])
+        let jdir = projects.appendingPathComponent(AgentTranscripts.claudeProjectNames(for: kernelCwd)[0])
         try fm.createDirectory(at: jdir, withIntermediateDirectories: true)
         let journal = jdir.appendingPathComponent("11111111-2222-3333-4444-555555555555.jsonl")
         let now = ISO8601DateFormatter().string(from: Date())
@@ -424,7 +429,6 @@ final class AgentMonitorEndToEndTests: XCTestCase {
         var cfg = AgentsConfig()
         cfg.scanBrowsers = false
         monitor.config = cfg
-        usleep(300_000) // let the child exec so the kernel reports its name and cwd
         let agents = monitor.scanNow()
         let me = try XCTUnwrap(agents.first { $0.id == "proc:\(proc.processIdentifier)" }, "agents seen: \(agents.map { "\($0.id) \($0.name)" })")
         XCTAssertEqual(me.name, "Claude Code")
