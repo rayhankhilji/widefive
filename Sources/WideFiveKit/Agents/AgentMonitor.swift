@@ -41,7 +41,7 @@ public final class AgentMonitor {
     /// argv never changes for a process's lifetime, so it's read once per (pid, start time).
     private var argvCache: [pid_t: (start: Double, args: [String])] = [:]
     private var transcriptFiles: [pid_t: URL] = [:]
-    private var transcriptCache: [URL: (mtime: Date, verdict: AgentTranscripts.Verdict?)] = [:]
+    private var transcriptCache: [URL: (stamp: String, verdict: AgentTranscripts.Verdict?)] = [:]
     private var codexCwdCache: [URL: String] = [:]
     private var bannersSeen: [String: Double] = [:]
     /// Banner-driven "needs you" marks per agent id: the banner text and when it arrived.
@@ -337,10 +337,12 @@ public final class AgentMonitor {
             if let f = file { transcriptFiles[pid] = f }
         }
         guard let f = file else { return nil }
-        let mtime = (try? f.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? Date()
-        if let c = transcriptCache[f], c.mtime == mtime { return c.verdict }
+        // Re-parse only when the file changed: modification time plus size (appends can land within the same timestamp).
+        let rv = try? f.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+        let stamp = "\(rv?.contentModificationDate?.timeIntervalSince1970 ?? 0)|\(rv?.fileSize ?? -1)"
+        if let c = transcriptCache[f], c.stamp == stamp { return c.verdict }
         let v = key == "claude" ? AgentTranscripts.claudeVerdict(file: f) : AgentTranscripts.codexVerdict(file: f)
-        transcriptCache[f] = (mtime, v)
+        transcriptCache[f] = (stamp, v)
         if transcriptCache.count > 64 { transcriptCache = transcriptCache.filter { transcriptFiles.values.contains($0.key) } }
         return v
     }
