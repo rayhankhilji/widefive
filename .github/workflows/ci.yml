@@ -44,6 +44,8 @@ jobs:
           mkdir -p out
           swift run widefive --snapshot agents:demo out/agents.png 2 1004
           swift run widefive --snapshot home:demo out/home.png 1 1004
+          swift run widefive --snapshot agents:demo@paper out/agents-paper.png 2 1004
+          swift run widefive --snapshot agents:demo@graphite out/agents-graphite.png 2 1004
 
       - name: Build widefive.app (universal, ad-hoc signed)
         run: |

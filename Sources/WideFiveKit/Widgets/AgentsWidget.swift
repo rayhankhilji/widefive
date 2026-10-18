@@ -20,7 +20,7 @@ final class AgentsWidget: Widget {
         var labelled = false
         var out: [Cell] = []
         for a in shown {
-            var w = Self.pad + Self.markSize + 4 + numberWidth(a) + 5 + 6 + Self.pad
+            var w = Self.pad + AgentStyle.markWidth(a.mark, height: Self.markSize) + 4 + numberWidth(a) + 5 + 6 + Self.pad
             var label: String?
             if a.alerting, !labelled {
                 label = a.stateLabel
@@ -74,9 +74,10 @@ final class AgentsWidget: Widget {
     private func drawCell(_ c: Canvas, _ a: Agent, label: String?, in f: CGRect) {
         let theme = c.theme
         var x = f.minX + Self.pad
-        let markRect = CGRect(x: x, y: f.midY - Self.markSize / 2, width: Self.markSize, height: Self.markSize)
+        let mw = AgentStyle.markWidth(a.mark, height: Self.markSize)
+        let markRect = CGRect(x: x, y: f.midY - Self.markSize / 2, width: mw, height: Self.markSize)
         AgentStyle.mark(c, a.mark, in: markRect, alpha: a.state == .idle ? 0.55 : 1)
-        x += Self.markSize + 4
+        x += mw + 4
         if a.number > 0 {
             x += c.text("\(a.number)", x: x, size: 10, color: theme.text.withAlphaComponent(a.state == .idle ? 0.45 : 0.8), weight: .semibold, mono: true)
         }

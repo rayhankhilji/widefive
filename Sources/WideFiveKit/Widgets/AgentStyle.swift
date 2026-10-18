@@ -57,15 +57,23 @@ enum AgentStyle {
         }
     }
 
+    /// Width a mark wants at `height` (Clawd is wide; everything else is square).
+    static func markWidth(_ m: Agent.Mark, height: CGFloat = 16) -> CGFloat {
+        if case .claudeCode = m { return (height * 1.75).rounded() }
+        return height
+    }
+
+    /// Terminal block characters are twice as tall as they are wide, so each Clawd cell is a 1:2 pixel.
     static func drawClawd(_ c: Canvas, in r: CGRect) {
         let cols = CGFloat(clawd[0].count), rows = CGFloat(clawd.count)
-        let px = (min(r.width / cols, r.height / rows) * 2).rounded(.down) / 2   // whole half-points: crisp at 2x
-        let w = cols * px, h = rows * px
-        let x0 = (r.midX - w / 2).rounded(), y0 = (r.midY - h / 2 + px * 0.5).rounded()
+        let ph = (min(r.height / rows, r.width / cols * 2) * 2).rounded(.down) / 2   // whole half-points: crisp at 2x
+        let pw = ph / 2
+        let w = cols * pw, h = rows * ph
+        let x0 = (r.midX - w / 2) , y0 = (r.midY - h / 2).rounded()
         c.cg.setFillColor(claude.cgColor)
         for (ri, row) in clawd.enumerated() {
             for (ci, ch) in row.enumerated() where ch == "1" {
-                c.cg.fill(CGRect(x: x0 + CGFloat(ci) * px, y: y0 + (rows - 1 - CGFloat(ri)) * px, width: px, height: px))
+                c.cg.fill(CGRect(x: x0 + CGFloat(ci) * pw, y: y0 + (rows - 1 - CGFloat(ri)) * ph, width: pw, height: ph))
             }
         }
     }

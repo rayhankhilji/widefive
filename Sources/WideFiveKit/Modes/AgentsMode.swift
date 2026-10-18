@@ -68,7 +68,7 @@ public final class AgentsMode: StripMode, DemoStartable {
         let status = Canvas.measure(head, size: Self.metaSize, weight: .medium) + (tail.map { Canvas.measure(" · " + $0, size: Self.metaSize) } ?? 0) + 11
         let time = Canvas.measure(AgentStyle.elapsed(since: a.since), size: 9.5, mono: true)
         let text = max(name + 6 + min(place, 120), status)
-        return min(340, max(200, 10 + Self.markSize + 9 + text + 12 + time + 10))
+        return min(350, max(200, 12 + AgentStyle.markWidth(a.mark, height: Self.markSize) + 9 + text + 12 + time + 10))
     }
 
     // MARK: Drawing
@@ -144,11 +144,12 @@ public final class AgentsMode: StripMode, DemoStartable {
         c.scaled(1 - 0.025 * p, around: CGPoint(x: r.midX, y: r.midY)) {
             AgentStyle.card(c, r, pressed: p)
             if a.alerting {
-                // A thin edge in the status colour: the only colour on a card besides its dot.
-                c.roundRect(CGRect(x: r.minX + 0.5, y: r.minY + 5, width: 2, height: r.height - 10), radius: 1, fill: AgentStyle.color(a.state, theme))
+                // A thin inset edge in the status colour: the only colour on a card besides its dot.
+                c.roundRect(CGRect(x: r.minX + 4, y: r.minY + 6, width: 2, height: r.height - 12), radius: 1, fill: AgentStyle.color(a.state, theme))
             }
             let dim = a.state == .idle
-            let markRect = CGRect(x: r.minX + 10, y: r.midY - Self.markSize / 2, width: Self.markSize, height: Self.markSize)
+            let mw = AgentStyle.markWidth(a.mark, height: Self.markSize)
+            let markRect = CGRect(x: r.minX + 12, y: r.midY - Self.markSize / 2, width: mw, height: Self.markSize)
             AgentStyle.mark(c, a.mark, in: markRect, alpha: dim ? 0.5 : 1)
 
             let textX = markRect.maxX + 9
