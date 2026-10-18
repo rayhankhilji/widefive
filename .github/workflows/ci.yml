@@ -1,0 +1,54 @@
+name: CI
+
+# Build + test on every push and pull request, and render the agents demo strip so drawing code runs headless too.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use the newest Xcode (default 16.4 / Swift 6.1 is too old)
+        run: |
+          XC="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)"
+          [ -n "$XC" ] && sudo xcode-select -s "$XC/Contents/Developer"
+          swift --version
+
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: spm-ci-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
+
+      - name: Build
+        run: swift build 2>&1 | tee build.log; test "${PIPESTATUS[0]}" -eq 0
+
+      - name: Test
+        run: swift test 2>&1 | tee test.log; test "${PIPESTATUS[0]}" -eq 0
+
+      - name: Render the agents strip headless
+        run: |
+          mkdir -p out
+          swift run widefive --snapshot agents:demo out/agents.png 2 1004
+          swift run widefive --snapshot home out/home.png 1 1004
+
+      - name: Upload renders and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-${{ github.run_number }}
+          path: |
+            out/
+            build.log
+            test.log
+          if-no-files-found: ignore
