@@ -147,7 +147,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         m.onAttention = { [weak self] a in
             guard let self else { return }
             let cfg = self.store.config.agents
-            if cfg.toast { self.controller.toast("🔔 \(a.name) needs you  ·  \(a.message ?? a.detail)") }
+            if cfg.toast {
+                let verb = a.state == .done ? "✅ \(a.name) is done" : "🔔 \(a.name) needs you"
+                self.controller.toast("\(verb)  ·  \(a.message ?? a.detail)")
+            }
             if cfg.sound { NSSound(named: "Pop")?.play() }
         }
         m.start()
@@ -162,13 +165,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(none)
         }
         for a in agents {
-            let state: String
-            switch a.state {
-            case .waiting: state = "needs you"
-            case .working: state = "working"
-            case .idle: state = a.signal == "seen" ? "seen" : "idle"
-            }
-            let i = item("\(a.needsYou ? "🔴 " : "")\(a.name) — \(a.detail)  (\(state))", #selector(pickAgent(_:)))
+            let mark = a.state == .waiting ? "🔴 " : a.state == .done ? "✅ " : ""
+            let i = item("\(mark)\(a.name) — \(a.detail)  (\(a.stateLabel))", #selector(pickAgent(_:)))
             i.representedObject = a.id
             i.image = NSImage(systemSymbolName: a.icon, accessibilityDescription: nil)
             i.toolTip = a.message

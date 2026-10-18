@@ -26,6 +26,21 @@ public final class AgentMonitor {
 
     public var waiting: [Agent] { agents.filter { $0.needsYou } }
 
+    /// What's stopping detection from being complete, with the Settings pane that fixes it.
+    public struct Hint: Equatable { public var text: String; public var settingsURL: String }
+    public var hint: Hint? {
+        if !AXIsProcessTrusted() {
+            return Hint(text: "Allow Accessibility so widefive can see agent notifications and raise their windows",
+                        settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+        }
+        if let denied = AppScripting.automationDenied.first {
+            let name = NSRunningApplication.runningApplications(withBundleIdentifier: denied).first?.localizedName ?? denied
+            return Hint(text: "Allow widefive to control \(name) to find agent tabs",
+                        settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")
+        }
+        return nil
+    }
+
     private var timer: Timer?
     private let queue = DispatchQueue(label: "widefive.agents", qos: .utility)
     private var scanning = false
@@ -44,8 +59,10 @@ public final class AgentMonitor {
     private var transcriptCache: [URL: (stamp: String, verdict: AgentTranscripts.Verdict?)] = [:]
     private var codexCwdCache: [URL: String] = [:]
     private var bannersSeen: [String: Double] = [:]
-    /// Banner-driven "needs you" marks per agent id: the banner text and when it arrived.
-    private var bannerMarks: [String: (text: String, at: Double)] = [:]
+    /// Banner-driven marks per agent id: the banner text, when it arrived and what it means.
+    private var bannerMarks: [String: (text: String, at: Double, state: Agent.State)] = [:]
+    /// Agents known only from a banner (cloud sessions, web agents whose tab we can't read).
+    private var bannerAgents: [String: (agent: Agent, at: Double)] = [:]
 
     // Main-thread state.
     private var previousStates: [String: (state: Agent.State, since: Date)] = [:]
@@ -131,6 +148,13 @@ public final class AgentMonitor {
         for t in tabs where AgentCatalog.siteSpec(url: t.url, extra: config.sites) != nil { out.append("  \(t.bundleId) w\(t.window) t\(t.index) \(t.url) — \(t.title)") }
         out.append("banners on screen: \(NotificationBanners.current())")
         out.append("hook events: \(AgentHooks.events().count)")
+        out.append("claude code sessions (\(ClaudeSessions.directory.path)):")
+        for e in ClaudeSessions.entries() {
+            let (st, msg) = ClaudeSessions.state(of: e)
+            out.append("  pid \(e.pid) \(e.kind ?? "?")/\(e.entrypoint ?? "?") status=\(e.status)\(e.waitingFor.map { " waitingFor=\($0)" } ?? "") → \(st)\(msg.map { " (\($0))" } ?? "") cwd=\(e.cwd ?? "?") name=\(e.name ?? "-")")
+        }
+        let errors = AppScripting.lastErrors
+        if !errors.isEmpty { out.append("apple events errors: \(errors.map { "\($0.key): \($0.value.code) \($0.value.message)" })") }
         out.append("")
         for a in scanNow() { out.append("→ \(a.kind) \(a.name) [\(a.state)] via \(a.signal): \(a.detail)\(a.message.map { " — " + $0 } ?? "")") }
         return out.joined(separator: "\n")
@@ -175,10 +199,24 @@ public final class AgentMonitor {
                 p = table[p]?.ppid ?? 0
             }
         }
+        // Claude Code's own status files: exact state for every session, and they name the real session process.
+        let sessions = ClaudeSessions.entries()
+        var sessionByPid: [pid_t: ClaudeSessions.Entry] = [:]
+        for e in sessions where table[e.pid] != nil {
+            sessionByPid[e.pid] = e
+            if matched[e.pid] == nil { matched[e.pid] = AgentCatalog.terminal[0] }
+            // A matched wrapper above or below the session process is the same session.
+            var p = table[e.pid]?.ppid ?? 0
+            for _ in 0..<4 { guard p > 1 else { break }; if matched[p] != nil { wrappers.insert(p) }; p = table[p]?.ppid ?? 0 }
+            for k in children[e.pid] ?? [] where matched[k] != nil { wrappers.insert(k) }
+            wrappers.remove(e.pid)
+        }
         let live = matched.keys.filter { !wrappers.contains($0) }.sorted { (table[$0]?.startTime ?? 0) < (table[$1]?.startTime ?? 0) }
         transcriptFiles = transcriptFiles.filter { live.contains($0.key) }
 
         var hostedBy: Set<String> = []
+        /// claude.ai/code session ids already shown through a local session (Remote Control), so their tab isn't doubled.
+        var bridged: Set<String> = []
         for pid in live {
             guard let p = table[pid], let spec = matched[pid] else { continue }
             let cpu = subtreeCPU(pid, children: children)
@@ -200,7 +238,14 @@ public final class AgentMonitor {
             var message: String?
             var since = wall
             let id = "proc:\(pid)"
-            if let hook, hook.time.timeIntervalSince1970 >= p.startTime - 1 {
+            let session = sessionByPid[pid]
+            if let session {
+                signal = "session"
+                (state, message) = ClaudeSessions.state(of: session)
+                since = session.statusUpdatedAt ?? wall
+                if state == .done, let last = verdict?.lastText, verdict?.phase == .turnDone { message = last }
+                strong.insert(id)
+            } else if let hook, hook.time.timeIntervalSince1970 >= p.startTime - 1 {
                 signal = "hook"
                 state = hook.state
                 message = hook.message
@@ -214,7 +259,7 @@ public final class AgentMonitor {
                 case .working:
                     state = .working
                 case .turnDone:
-                    if resumed, quiet < 1 { state = .working } else { state = .waiting; message = v.lastText ?? "Finished — waiting for your next prompt" }
+                    if resumed, quiet < 1 { state = .working } else { state = .done; message = v.lastText ?? "Done — your turn" }
                 case .toolPending(let tool):
                     let toolRunning = busy || (children[pid] ?? []).contains { (table[$0]?.startTime ?? 0) >= v.at.timeIntervalSince1970 - 1 }
                     if toolRunning || quiet < 2 { state = .working; message = "Running \(tool)" }
@@ -224,20 +269,33 @@ public final class AgentMonitor {
                 }
                 strong.insert(id)
             }
-            // Whatever the journal says, a process that has done nothing for a long while is waiting on something.
-            if state == .working, quiet >= max(cfg.idleSeconds * 5, 30) { state = .waiting; signal = "cpu"; message = message ?? "No activity for a while" }
+            // Without an exact signal, a process that has done nothing for a long while is waiting on something.
+            if session == nil, state == .working, quiet >= max(cfg.idleSeconds * 5, 30) { state = .waiting; signal = "cpu"; message = message ?? "No activity for a while" }
 
             let project = cwd.map { ($0 as NSString).lastPathComponent }
             let host = ProcessScanner.hostApp(of: pid, in: table)
             let hostId = host?.bundleIdentifier
             if let hostId { hostedBy.insert(hostId) }
+            if let b = session?.bridgeSessionId { bridged.insert(b) }
+            if let sid = session?.sessionId { bridged.insert(sid) }
             let tty = hook?.tty ?? p.tty
             var detail = project ?? (tty ?? "")
-            if let t = verdict?.title, !t.isEmpty { detail = detail.isEmpty ? t : "\(detail) — \(t.prefix(48))" }
-            if let host, let hn = host.localizedName { hostNames[id] = hn; if verdict?.title == nil { detail = detail.isEmpty ? hn : "\(detail) · \(hn)" } }
-            out.append(Agent(id: id, kind: .terminal, name: spec.name, detail: detail, state: state, since: since, message: message,
+            let title = (session?.nameIsUser == true ? session?.name : nil) ?? verdict?.title
+            if let t = title, !t.isEmpty { detail = detail.isEmpty ? t : "\(detail) — \(t.prefix(48))" }
+            if let host, let hn = host.localizedName { hostNames[id] = hn; if title == nil { detail = detail.isEmpty ? hn : "\(detail) · \(hn)" } }
+            var kind: Agent.Kind = .terminal
+            var focus: Agent.Focus = .terminal(bundleId: hostId, tty: tty, window: project)
+            if let hostId, AgentCatalog.terminalHosts[hostId] == nil {
+                // Running inside an app (Claude desktop's Code tab, VS Code, Cursor…): bring that app's window up.
+                kind = .app
+                focus = .app(bundleId: hostId, window: project)
+            } else if hostId == nil, tty == nil, let s = session, s.kind == "bg" || s.kind == "daemon-worker" {
+                // A background session has no window: open one attached to it.
+                focus = .command("claude attach \(s.sessionId ?? String(pid))", cwd: cwd)
+            }
+            out.append(Agent(id: id, kind: kind, name: spec.name, detail: detail, state: state, since: since, message: message,
                              color: spec.color, logo: spec.logo, icon: spec.icon, hostBundleId: hostId,
-                             focus: .terminal(bundleId: hostId, tty: tty, window: project), signal: signal))
+                             focus: focus, signal: signal))
         }
 
         // Dock badges (needs Accessibility; cached briefly because the AX walk isn't free).
@@ -281,6 +339,7 @@ public final class AgentMonitor {
             var browserNames: [String: String] = [:]
             for t in cachedTabs {
                 guard let spec = AgentCatalog.siteSpec(url: t.url, extra: cfg.sites) else { continue }
+                if bridged.contains(where: { t.url.contains($0) }) { continue }
                 let key = "\(t.bundleId)|\(t.url)"
                 guard !seenURLs.contains(key) else { continue }
                 seenURLs.insert(key)
@@ -349,32 +408,83 @@ public final class AgentMonitor {
 
     // MARK: Banners
 
-    /// Reads the banners on screen, remembers the new ones, matches each to the agent it is about and marks it waiting.
+    /// Reads the banners on screen, remembers the new ones, matches each to the agent it is about and marks it.
+    /// A banner from an agent we can't see otherwise (a cloud session, a web agent in a tab we couldn't read) becomes
+    /// its own entry, so "Claude Code finished" from the Claude app or claude.ai still lands on the bar.
     private func applyBanners(to out: inout [Agent], strong: Set<String>, hostNames: [String: String], now: Double) {
         let banners = NotificationBanners.current()
         var fresh: [NotificationBanners.Banner] = []
         for b in banners where bannersSeen[b.id] == nil { bannersSeen[b.id] = now; fresh.append(b) }
-        bannersSeen = bannersSeen.filter { now - $0.value < 600 }
+        bannersSeen = bannersSeen.filter { now - $0.value < 3600 }
         for b in fresh {
-            guard let i = Self.match(banner: b, agents: out, hostNames: hostNames) else { continue }
-            bannerMarks[out[i].id] = (b.text, now)
+            let state = Self.bannerState(b.text)
+            if let i = Self.match(banner: b, agents: out, hostNames: hostNames) {
+                bannerMarks[out[i].id] = (b.text, now, state)
+            } else if let a = Self.agentFromBanner(b, state: state, tabs: cachedTabs) {
+                bannerAgents[a.id] = (a, now)
+            }
         }
         let ids = Set(out.map { $0.id })
         bannerMarks = bannerMarks.filter { ids.contains($0.key) && now - $0.value.at < 6 * 3600 }
+        bannerAgents = bannerAgents.filter { now - $0.value.at < 3 * 3600 }
         for i in out.indices {
             guard let mark = bannerMarks[out[i].id] else { continue }
-            // A stronger signal saying "working" after the banner wins; otherwise the banner means "needs you".
-            if strong.contains(out[i].id), out[i].state == .working, out[i].since.timeIntervalSince1970 > Date().timeIntervalSince1970 - (now - mark.at) {
+            // A stronger signal that changed after the banner wins; otherwise the banner decides.
+            if strong.contains(out[i].id), out[i].since.timeIntervalSince1970 > Date().timeIntervalSince1970 - (now - mark.at) {
                 bannerMarks[out[i].id] = nil
                 continue
             }
-            if out[i].state != .waiting || out[i].signal == "cpu" || out[i].signal == "title" {
-                out[i].state = .waiting
+            if !strong.contains(out[i].id) || out[i].state != .waiting {
+                out[i].state = mark.state
                 out[i].signal = "banner"
                 out[i].message = mark.text
                 out[i].since = Date().addingTimeInterval(mark.at - now)
             }
         }
+        for (_, entry) in bannerAgents where !out.contains(where: { $0.id == entry.agent.id }) { out.append(entry.agent) }
+    }
+
+    /// "Needs your approval", "has a question", "waiting for input" → waiting; anything else from an agent → done.
+    static func bannerState(_ text: String) -> Agent.State {
+        let t = text.lowercased()
+        let asks = ["needs your", "need your", "needs input", "waiting for your", "waiting for input", "waiting on you", "permission",
+                    "approve", "approval", "allow ", "question", "asks", "asking", "respond", "reply needed", "action required", "confirm"]
+        return asks.contains { t.contains($0) } ? .waiting : .done
+    }
+
+    /// An entry for a banner about an agent that has no row yet: which agent (by app or site), and how to get to it.
+    static func agentFromBanner(_ b: NotificationBanners.Banner, state: Agent.State, tabs: [AppScripting.Tab]) -> Agent? {
+        let text = b.text
+        let lower = text.lowercased()
+        let appName = b.app ?? ""
+        let bundle = b.bundleId ?? NSWorkspace.shared.runningApplications.first { $0.localizedName == appName }?.bundleIdentifier
+        var spec: AgentCatalog.Spec?
+        var focus: Agent.Focus?
+        var kind: Agent.Kind = .web
+        if let app = AgentCatalog.appSpec(bundleId: bundle, name: appName), app.standalone {
+            spec = AgentCatalog.Spec(key: app.name, name: app.name, color: app.color, logo: app.logo, icon: app.icon)
+            if let bundle { focus = .app(bundleId: bundle, window: nil) }
+            kind = .app
+        } else {
+            for (match, s) in AgentCatalog.sites {
+                let host = String(match.split(separator: "/").first ?? "")
+                let named = s.name.count >= 4 && lower.range(of: "\\b" + NSRegularExpression.escapedPattern(for: s.name.lowercased()) + "\\b",
+                                                              options: .regularExpression) != nil
+                if lower.contains(host) || named {
+                    spec = s
+                    if let tab = tabs.first(where: { AgentCatalog.siteSpec(url: $0.url)?.key == s.key }) {
+                        focus = .tab(bundleId: tab.bundleId, url: tab.url, title: tab.title)
+                    } else {
+                        focus = .url("https://" + match)
+                    }
+                    break
+                }
+            }
+        }
+        guard let spec, let focus else { return nil }
+        let id = "banner:\(spec.key):\(abs(text.hashValue))"
+        return Agent(id: id, kind: kind, name: spec.name, detail: String(text.prefix(80)), state: state, since: Date(),
+                     message: text, color: spec.color, logo: spec.logo, icon: spec.icon, hostBundleId: bundle, focus: focus, signal: "banner")
     }
 
     /// Which agent a banner is about: the host app's name, the agent's name or site, and the project / tab words.
@@ -400,7 +510,12 @@ public final class AgentMonitor {
 
     // MARK: Publishing (main thread)
 
-    static func fingerprint(_ a: Agent) -> String { "\(a.state.rawValue)|\(a.detail)|\(a.message ?? "")" }
+    /// What "seen" refers to: the same state with the same message stays quiet; any change alerts again.
+    /// Exact signals carry the time the state changed, so a new turn finishing alerts again even with the same text.
+    static func fingerprint(_ a: Agent) -> String {
+        let stamp = ["session", "hook", "transcript"].contains(a.signal) ? Int(a.since.timeIntervalSince1970) : 0
+        return "\(a.state.rawValue)|\(a.message ?? "")|\(stamp)"
+    }
 
     private func publish(_ found: [Agent], first: Bool) {
         guard demoAgents == nil else { return }
@@ -408,14 +523,14 @@ public final class AgentMonitor {
         var attention: [Agent] = []
         var states: [String: (state: Agent.State, since: Date)] = [:]
         for var a in found {
-            if a.state == .waiting, acknowledged[a.id] == Self.fingerprint(a) {
+            if a.needsYou, acknowledged[a.id] == Self.fingerprint(a) {
                 a.state = .idle; a.signal = "seen"
-            } else if a.state != .waiting {
+            } else if !a.needsYou {
                 acknowledged.removeValue(forKey: a.id)
             }
             if let prev = previousStates[a.id] {
-                if prev.state == a.state { a.since = min(prev.since, a.since) } else if a.state == .waiting { attention.append(a) }
-            } else if a.state == .waiting, !first {
+                if prev.state == a.state { a.since = min(prev.since, a.since) } else if a.needsYou { attention.append(a) }
+            } else if a.needsYou, !first || a.signal == "banner" {
                 attention.append(a)
             }
             states[a.id] = (a.state, a.since)
@@ -454,6 +569,10 @@ public final class AgentMonitor {
                 ok = AppScripting.focusTerminal(bundleId: bid, tty: tty, window: window)
             case .tab(let bid, let url, let title):
                 ok = AppScripting.focusTab(bundleId: bid, url: url, title: title)
+            case .command(let cmd, let cwd):
+                ok = DispatchQueue.main.sync { AppScripting.openCommand(cmd, cwd: cwd) }
+            case .url(let u):
+                ok = DispatchQueue.main.sync { URL(string: u).map { NSWorkspace.shared.open($0) } ?? false }
             }
             DispatchQueue.main.async { done?(ok) }
         }
@@ -461,12 +580,12 @@ public final class AgentMonitor {
 
     /// Marks an agent as seen (after you tap it) so the bar stops pulsing until something about it changes.
     public func acknowledge(_ id: String) {
-        guard let i = agents.firstIndex(where: { $0.id == id }), agents[i].state == .waiting else { return }
+        guard let i = agents.firstIndex(where: { $0.id == id }), agents[i].needsYou else { return }
         acknowledged[id] = Self.fingerprint(agents[i])
         agents[i].state = .idle
         agents[i].signal = "seen"
         previousStates[id] = (.idle, Date())
-        queue.async { [weak self] in self?.bannerMarks[id] = nil }
+        queue.async { [weak self] in self?.bannerMarks[id] = nil; self?.bannerAgents[id] = nil }
         onChange?()
     }
 

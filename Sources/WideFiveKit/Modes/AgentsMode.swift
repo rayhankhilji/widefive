@@ -56,13 +56,7 @@ public final class AgentsMode: StripMode, DemoStartable {
         return a.detail
     }
 
-    private func pillText(_ a: Agent) -> String {
-        switch a.state {
-        case .waiting: return "needs you"
-        case .working: return "working"
-        case .idle: return a.signal == "seen" ? "seen" : "idle"
-        }
-    }
+    private func pillText(_ a: Agent) -> String { a.stateLabel }
 
     private func pillWidth(_ a: Agent) -> CGFloat { Canvas.measure(pillText(a), size: 8, weight: .bold) + 14 + (a.state == .working ? 14 : 0) }
 
@@ -70,6 +64,15 @@ public final class AgentsMode: StripMode, DemoStartable {
         let theme = c.theme
         let x0 = Metrics.contentX
         frames = []
+        if agents.isEmpty, let hint = AgentMonitor.shared.hint {
+            let r = CGRect(x: x0, y: 1.5, width: min(c.width - x0 - 4, Canvas.measure(hint.text, size: Metrics.Font.body, weight: .medium) + 44), height: c.height - 3)
+            frames.append(("hint", r))
+            c.button(r, style: .tinted(theme.warn), pressed: presses.amount("hint")) { _ in
+                c.symbol("exclamationmark.triangle.fill", in: CGRect(x: r.minX + 6, y: r.minY, width: 16, height: r.height), color: theme.warn, pointSize: 10)
+                c.text(hint.text, x: r.minX + 28, size: Metrics.Font.body, color: theme.text, weight: .medium, maxWidth: r.width - 34)
+            }
+            return
+        }
         if agents.isEmpty {
             let r = CGRect(x: x0, y: 1.5, width: 26, height: c.height - 3)
             c.panel(r)
@@ -81,12 +84,20 @@ public final class AgentsMode: StripMode, DemoStartable {
             return
         }
         let waiting = agents.filter { $0.needsYou }.count
-        let summary = waiting > 0 ? "\(waiting) need\(waiting == 1 ? "s" : "") you" : "\(agents.count) running"
+        let blocked = agents.filter { $0.state == .waiting }.count
+        let finished = waiting - blocked
+        let summary: String
+        if blocked > 0, finished > 0 { summary = "\(blocked) need you · \(finished) done" }
+        else if blocked > 0 { summary = "\(blocked) need\(blocked == 1 ? "s" : "") you" }
+        else if finished > 0 { summary = "\(finished) done" }
+        else { summary = "\(agents.count) running" }
         let summaryW = Canvas.measure(summary, size: Metrics.Font.caption, weight: .bold) + 4
         let pulse = CGFloat(0.5 + 0.5 * sin(c.time * 5))
-        c.caption(summary, x: x0, color: waiting > 0 ? theme.bad.mix(theme.text, 0.3 * (1 - pulse)) : theme.dim)
+        c.caption(summary, x: x0, color: waiting > 0 ? (blocked > 0 ? theme.bad : theme.good).mix(theme.text, 0.3 * (1 - pulse)) : theme.dim)
         let listX = x0 + summaryW + Metrics.groupGap
-        let widths = agents.map(rowWidth)
+        var widths = agents.map(rowWidth)
+        let hint = AgentMonitor.shared.hint
+        if let hint { widths.append(min(320, Canvas.measure(hint.text, size: Metrics.Font.caption + 0.5) + 40)) }
         let total = widths.reduce(0) { $0 + $1 + Metrics.gap }
         scroller.maxOffset = max(0, total - (c.width - listX))
         let off = scroller.offset
@@ -104,6 +115,11 @@ public final class AgentsMode: StripMode, DemoStartable {
                     }
                     x += w + Metrics.gap
                 }
+                if let hint {
+                    let r = CGRect(x: x, y: 1.5, width: widths[agents.count], height: c.height - 3)
+                    frames.append(("hint", r))
+                    drawHint(c, hint, r)
+                }
             }
         }
         if scroller.maxOffset > 0 {
@@ -117,7 +133,8 @@ public final class AgentsMode: StripMode, DemoStartable {
     private func drawRow(_ c: Canvas, _ a: Agent, _ r: CGRect, pulse: CGFloat) {
         let theme = c.theme
         let brand = theme.tint(NSColor(hex: a.color))
-        let style: ButtonStyle = a.needsYou ? .tinted(theme.bad) : .plain
+        let alert = a.state == .done ? theme.good : theme.bad
+        let style: ButtonStyle = a.needsYou ? .tinted(alert) : .plain
         let p = presses.amount(a.id)
         let draw = {
             c.button(r, style: style, pressed: p) { fg in
@@ -138,6 +155,7 @@ public final class AgentsMode: StripMode, DemoStartable {
                 let col: NSColor
                 switch a.state {
                 case .waiting: col = theme.bad
+                case .done: col = theme.good
                 case .working: col = theme.accent2
                 case .idle: col = theme.dim
                 }
@@ -158,7 +176,16 @@ public final class AgentsMode: StripMode, DemoStartable {
                 }
             }
         }
-        if a.needsYou { c.glowing(theme.bad, blur: 10, strength: 0.3 + 0.4 * pulse, draw) } else { draw() }
+        if a.needsYou { c.glowing(alert, blur: 10, strength: 0.3 + 0.4 * pulse, draw) } else { draw() }
+    }
+
+    private func drawHint(_ c: Canvas, _ hint: AgentMonitor.Hint, _ r: CGRect) {
+        let theme = c.theme
+        c.button(r, style: .tinted(theme.warn), pressed: presses.amount("hint")) { _ in
+            c.symbol("exclamationmark.triangle.fill", in: CGRect(x: r.minX + 5, y: r.minY, width: 16, height: r.height), color: theme.warn, pointSize: 9.5)
+            c.text("Fix detection", x: r.minX + 25, y: r.midY - 1, size: Metrics.Font.label, color: theme.text, weight: .semibold, maxWidth: r.width - 30)
+            c.text(hint.text, x: r.minX + 25, y: r.minY + 1.5, size: Metrics.Font.caption + 0.5, color: theme.dim, maxWidth: r.width - 30)
+        }
     }
 
     private func hit(_ x: CGFloat) -> String? { frames.first { $0.1.minX <= x && x <= $0.1.maxX }?.0 }
@@ -171,7 +198,7 @@ public final class AgentsMode: StripMode, DemoStartable {
         guard let id = pressed else { return }
         presses.press(id)
         let w = DispatchWorkItem { [weak self] in
-            guard let self, self.pressed == id, !self.scroller.dragging else { return }
+            guard let self, self.pressed == id, id != "hint", !self.scroller.dragging else { return }
             self.longFired = true
             AgentMonitor.shared.acknowledge(id)
             self.ctx?.toast("Marked as seen")
@@ -192,7 +219,13 @@ public final class AgentsMode: StripMode, DemoStartable {
         scroller.end(t)
         if let p = pressed { presses.release(p) }
         defer { pressed = nil }
-        guard !wasDragging, !longFired, let id = pressed, let a = agents.first(where: { $0.id == id }), let ctx else { return }
+        guard !wasDragging, !longFired, let id = pressed, let ctx else { return }
+        if id == "hint" {
+            if let h = AgentMonitor.shared.hint, let url = URL(string: h.settingsURL) { NSWorkspace.shared.open(url) }
+            if !AXIsProcessTrusted() { Keys.ensureAccessibility(prompt: true) }
+            return
+        }
+        guard let a = agents.first(where: { $0.id == id }) else { return }
         AgentsWidget.focus(a, ctx)
     }
 }

@@ -6,9 +6,11 @@ public struct Agent: Equatable {
     public enum State: String, Codable {
         /// Busy: streaming, thinking or running tools.
         case working
-        /// Stopped and waiting for you: a permission prompt, a question, or a finished turn.
+        /// Blocked on you: a permission prompt, a question, an approval.
         case waiting
-        /// Running but nothing is happening (fresh session, agent app with no badge).
+        /// Finished the task / turn: your move.
+        case done
+        /// Running but nothing is happening (fresh session, agent app with no badge, or already seen).
         case idle
     }
 
@@ -20,6 +22,10 @@ public struct Agent: Equatable {
         case terminal(bundleId: String?, tty: String?, window: String?)
         /// Browser tab found by URL.
         case tab(bundleId: String, url: String, title: String)
+        /// No window to raise (a background session): open a terminal running this command.
+        case command(String, cwd: String?)
+        /// Open a URL (a cloud session we only know from a notification).
+        case url(String)
     }
 
     public var id: String
@@ -50,7 +56,18 @@ public struct Agent: Equatable {
         self.focus = focus; self.signal = signal
     }
 
-    public var needsYou: Bool { state == .waiting }
+    /// Something for you to do: answer it, or look at what it finished.
+    public var needsYou: Bool { state == .waiting || state == .done }
+
+    /// Short label for pills and menus.
+    public var stateLabel: String {
+        switch state {
+        case .waiting: return "needs you"
+        case .done: return "done"
+        case .working: return "working"
+        case .idle: return signal == "seen" ? "seen" : "idle"
+        }
+    }
 }
 
 /// The built-in list of agents widefive recognises, plus the user's additions from config.

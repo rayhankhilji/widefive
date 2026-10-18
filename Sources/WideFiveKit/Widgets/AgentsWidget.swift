@@ -19,7 +19,7 @@ final class AgentsWidget: Widget {
 
     func width(_ ctx: ModeContext) -> CGFloat {
         let agents = AgentMonitor.shared.agents
-        guard !agents.isEmpty else { return 0 }
+        guard !agents.isEmpty else { return AgentMonitor.shared.hint == nil ? 0 : Self.chip + Self.pad * 2 }
         let (list, overflow) = shown(agents)
         let n = CGFloat(list.count) + (overflow > 0 ? 1 : 0)
         return Self.pad * 2 + n * Self.chip + (n - 1) * Self.gap
@@ -28,12 +28,20 @@ final class AgentsWidget: Widget {
     func draw(_ c: Canvas, in r: CGRect, pressed: Bool, ctx: ModeContext) {
         let agents = AgentMonitor.shared.agents
         chips = []
-        guard !agents.isEmpty else { return }
         let theme = c.theme
+        guard !agents.isEmpty else {
+            // Nothing visible yet and a permission is missing: one amber chip that opens the Agents mode, which explains.
+            if AgentMonitor.shared.hint != nil {
+                tile(c, r, pressed: pressed)
+                c.symbol("exclamationmark.triangle.fill", in: r, color: theme.warn, pointSize: 10)
+            }
+            return
+        }
         let anyWaiting = agents.contains { $0.needsYou }
+        let glow = agents.contains { $0.state == .waiting } ? theme.bad : theme.good
         let pulse = CGFloat(0.5 + 0.5 * sin(c.time * 5))
         if anyWaiting {
-            c.glowing(theme.bad, blur: 8, strength: 0.35 + 0.45 * pulse) { tile(c, r, pressed: pressed) }
+            c.glowing(glow, blur: 8, strength: 0.35 + 0.45 * pulse) { tile(c, r, pressed: pressed) }
         } else {
             tile(c, r, pressed: pressed)
         }
@@ -58,10 +66,11 @@ final class AgentsWidget: Widget {
         let brand = theme.tint(NSColor(hex: a.color))
         let side: CGFloat = 18
         let icon = CGRect(x: f.midX - side / 2, y: f.midY - side / 2 + 0.5, width: side, height: side)
+        let alert = a.state == .done ? theme.good : theme.bad
         if a.needsYou {
-            let wash = theme.surface.mix(theme.bad, 0.35 + 0.3 * pulse)
-            c.glowing(theme.bad, blur: 6, strength: 0.4 + 0.6 * pulse) {
-                c.roundRect(f.insetBy(dx: 1, dy: 2.5), radius: 6, fill: wash, stroke: theme.bad.withAlphaComponent(0.5 + 0.4 * pulse), lineWidth: 1)
+            let wash = theme.surface.mix(alert, 0.35 + 0.3 * pulse)
+            c.glowing(alert, blur: 6, strength: 0.4 + 0.6 * pulse) {
+                c.roundRect(f.insetBy(dx: 1, dy: 2.5), radius: 6, fill: wash, stroke: alert.withAlphaComponent(0.5 + 0.4 * pulse), lineWidth: 1)
             }
         } else if a.state == .working {
             c.roundRect(f.insetBy(dx: 1, dy: 2.5), radius: 6, fill: theme.surfaceHi.withAlphaComponent(0.6))
@@ -80,6 +89,12 @@ final class AgentsWidget: Widget {
                 c.circle(center: dot, radius: 3.6, theme.background)
                 c.circle(center: dot, radius: 2.6 + 0.6 * pulse, theme.bad)
             }
+        case .done:
+            c.glowing(theme.good, blur: 5, strength: 1) {
+                c.circle(center: dot, radius: 3.8, theme.background)
+                c.circle(center: dot, radius: 3, theme.good)
+            }
+            c.symbol("checkmark", in: CGRect(x: dot.x - 3, y: dot.y - 3, width: 6, height: 6), color: theme.on(theme.good), pointSize: 4.5)
         case .working:
             let breathe = CGFloat(0.6 + 0.4 * sin(c.time * 2.2))
             c.circle(center: dot, radius: 3.2, theme.background)

@@ -23,17 +23,49 @@ public enum AppScripting {
         "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 
+    /// Last AppleScript failure per target app (code, message), so the bar can say *why* tabs are missing.
+    public private(set) static var lastErrors: [String: (code: Int, message: String)] = [:]
+    private static let errorLock = NSLock()
+
+    /// Apps macOS refused to let widefive script (System Settings → Privacy & Security → Automation).
+    public static var automationDenied: [String] {
+        errorLock.lock(); defer { errorLock.unlock() }
+        return lastErrors.filter { $0.value.code == -1743 }.map { $0.key }.sorted()
+    }
+
     @discardableResult
-    static func run(_ source: String) -> String? {
+    static func run(_ source: String, target: String = "") -> String? {
         var err: NSDictionary?
         guard let script = NSAppleScript(source: source) else { return nil }
         let result = script.executeAndReturnError(&err)
+        errorLock.lock(); defer { errorLock.unlock() }
         if let err {
-            NSLog("widefive: AppleScript failed: \(err[NSAppleScript.errorMessage] ?? "?")")
+            let code = (err[NSAppleScript.errorNumber] as? Int) ?? 0
+            let msg = (err[NSAppleScript.errorMessage] as? String) ?? "?"
+            lastErrors[target] = (code, msg)
+            NSLog("widefive: AppleScript \(target) failed (\(code)): \(msg)")
             return nil
         }
+        lastErrors[target] = nil
         return result.stringValue ?? ""
     }
+
+    /// Opens a Terminal window running `command` (for sessions with no window of their own). No Apple Events involved:
+    /// a .command file is opened like a double-click.
+    public static func openCommand(_ command: String, cwd: String?) -> Bool {
+        let dir = ConfigStore.directory.appendingPathComponent("run")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = dir.appendingPathComponent("open-\(abs(command.hashValue)).command")
+        let cd = cwd.map { "cd \(quotedShell($0)) 2>/dev/null\n" } ?? ""
+        let body = "#!/bin/zsh -l\n\(cd)exec \(command)\n"
+        do {
+            try body.write(to: file, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
+        } catch { return false }
+        return NSWorkspace.shared.open(file)
+    }
+
+    static func quotedShell(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
 
     // MARK: Browser tabs
 
@@ -69,7 +101,7 @@ public enum AppScripting {
                 return out
             end tell
             """
-            guard let text = run(src), !text.isEmpty else { continue }
+            guard let text = run(src, target: b.bundleId), !text.isEmpty else { continue }
             for rec in text.components(separatedBy: line) {
                 let f = rec.components(separatedBy: unit)
                 guard f.count >= 4, let w = Int(f[0]), let i = Int(f[1]) else { continue }
@@ -106,7 +138,7 @@ public enum AppScripting {
             return ""
         end tell
         """
-        guard run(src) == "ok" else {
+        guard run(src, target: bundleId) == "ok" else {
             activate(bundleId)
             return false
         }
@@ -173,7 +205,7 @@ public enum AppScripting {
             end tell
             """
         }
-        return run(src) == "ok"
+        return run(src, target: bundleId) == "ok"
     }
 
     // MARK: Apps & windows

@@ -1,6 +1,7 @@
 name: CI
 
-# Build + test on every push and pull request, and render the agents demo strip so drawing code runs headless too.
+# Build + test on every push and pull request, render the strip headless, build a downloadable widefive.app,
+# and run live checks of the coding-agent monitor against real macOS (notifications, Chrome tabs).
 on:
   push:
     branches: ["**"]
@@ -14,9 +15,11 @@ concurrency:
 jobs:
   test:
     runs-on: macos-15
-    timeout-minutes: 40
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # build number = commit count
 
       - name: Use the newest Xcode (default 16.4 / Swift 6.1 is too old)
         run: |
@@ -42,13 +45,42 @@ jobs:
           swift run widefive --snapshot agents:demo out/agents.png 2 1004
           swift run widefive --snapshot home:demo out/home.png 1 1004
 
+      - name: Live check — notification banners and Chrome tabs on a real Mac
+        continue-on-error: true
+        run: |
+          set -x
+          BIN="$(swift build --show-bin-path)/widefive"
+          alarm() { perl -e 'alarm shift; exec @ARGV' "$@"; }
+          mkdir -p ~/.widefive
+          echo '{"agents":{"sites":{"example.com":"Example Agent"}}}' > ~/.widefive/config.json
+          osascript -e 'display notification "Claude needs your permission to use Bash" with title "Claude Code" subtitle "widefive CI"' || true
+          open -a "Google Chrome" "https://example.com/agents" || true
+          sleep 6
+          alarm 150 "$BIN" --agents 0 2>&1 | tee out/agents-live.txt || true
+          osascript -e 'display notification "Your task is complete" with title "Codex" subtitle "chatgpt.com"' || true
+          sleep 2
+          alarm 60 "$BIN" --agents 0 2>&1 | tail -25 | tee -a out/agents-live.txt || true
+
+      - name: Build widefive.app (universal, ad-hoc signed)
+        run: |
+          Scripts/build-app.sh
+          ditto -c -k --keepParent build/widefive.app "out/widefive-$(git rev-parse --short HEAD).app.zip"
+
+      - name: Upload the app
+        uses: actions/upload-artifact@v4
+        with:
+          name: widefive-app-${{ github.run_number }}
+          path: out/widefive-*.app.zip
+          if-no-files-found: error
+
       - name: Upload renders and logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ci-${{ github.run_number }}
           path: |
-            out/
+            out/*.png
+            out/*.txt
             build.log
             test.log
           if-no-files-found: ignore

@@ -425,6 +425,7 @@ final class AgentMonitorEndToEndTests: XCTestCase {
             #"{"type":"assistant","timestamp":"\#(now)","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"Shipped. Anything else?"}]}}"#,
         ].joined(separator: "\n").appending("\n").write(to: journal, atomically: true, encoding: .utf8)
 
+        ClaudeSessions.directory = root.appendingPathComponent("no-sessions")
         let monitor = AgentMonitor()
         var cfg = AgentsConfig()
         cfg.scanBrowsers = false
@@ -434,7 +435,7 @@ final class AgentMonitorEndToEndTests: XCTestCase {
         XCTAssertEqual(me.name, "Claude Code")
         XCTAssertEqual(me.kind, .terminal)
         XCTAssertEqual(me.signal, "transcript")
-        XCTAssertEqual(me.state, .waiting)
+        XCTAssertEqual(me.state, .done)
         XCTAssertEqual(me.message, "Shipped. Anything else?")
         XCTAssertTrue(me.detail.hasPrefix("my-app"), me.detail)
         XCTAssertTrue(me.detail.contains("ship the agent strip"), me.detail)
@@ -448,5 +449,118 @@ final class AgentMonitorEndToEndTests: XCTestCase {
         let again = monitor.scanNow().first { $0.id == me.id }
         XCTAssertEqual(again?.state, .working)
         XCTAssertEqual(again?.signal, "transcript")
+    }
+}
+
+final class ClaudeSessionsTests: XCTestCase {
+    func entry(_ json: String) -> ClaudeSessions.Entry? { ClaudeSessions.parse(Data(json.utf8)) }
+
+    func testParsesTheRealFileFormat() throws {
+        // Verbatim shape of a Claude Code 2.1 ~/.claude/sessions/<pid>.json.
+        let e = try XCTUnwrap(entry(#"{"pid":97,"sessionId":"d31b04dc-a220-5dc3-8ffd-02a95eac2017","cwd":"/home/user/widefive","startedAt":1792325879599,"procStart":"350","version":"2.1.302","peerProtocol":1,"kind":"interactive","entrypoint":"cli","name":"widefive-2b","nameSource":"derived","updatedAt":1792325881037,"status":"busy","statusUpdatedAt":1792325881037}"#))
+        XCTAssertEqual(e.pid, 97)
+        XCTAssertEqual(e.cwd, "/home/user/widefive")
+        XCTAssertEqual(e.kind, "interactive")
+        XCTAssertFalse(e.nameIsUser)
+        XCTAssertEqual(e.statusUpdatedAt?.timeIntervalSince1970 ?? 0, 1792325881.037, accuracy: 0.001)
+        XCTAssertEqual(ClaudeSessions.state(of: e).0, .working)
+        XCTAssertNil(entry("{}"))
+        XCTAssertNil(entry("nope"))
+    }
+
+    func testStates() throws {
+        let waiting = try XCTUnwrap(entry(#"{"pid":1,"status":"waiting","waitingFor":"input needed","startedAt":1000000,"statusUpdatedAt":1060000}"#))
+        XCTAssertEqual(ClaudeSessions.state(of: waiting).0, .waiting)
+        XCTAssertEqual(ClaudeSessions.state(of: waiting).1, "Needs your input")
+        let perm = try XCTUnwrap(entry(#"{"pid":1,"status":"waiting","waitingFor":"permission to run Bash","startedAt":1000000,"statusUpdatedAt":1060000}"#))
+        XCTAssertEqual(ClaudeSessions.state(of: perm).1, "Waiting for your permission — permission to run Bash")
+        let done = try XCTUnwrap(entry(#"{"pid":1,"status":"idle","startedAt":1000000,"statusUpdatedAt":1060000}"#))
+        XCTAssertEqual(ClaudeSessions.state(of: done).0, .done)
+        let fresh = try XCTUnwrap(entry(#"{"pid":1,"status":"idle","startedAt":1000000,"statusUpdatedAt":1000900}"#))
+        XCTAssertEqual(ClaudeSessions.state(of: fresh).0, .idle)
+        XCTAssertEqual(ClaudeSessions.state(of: try XCTUnwrap(entry(#"{"pid":1,"status":"shell"}"#))).0, .working)
+    }
+
+    /// A real process plus the status file Claude Code would keep for it: waiting → done → working, exactly.
+    func testMonitorFollowsTheSessionFile() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("widefive-sess-\(UUID().uuidString)").resolvingSymlinksInPath()
+        let project = root.appendingPathComponent("api-server")
+        let bin = root.appendingPathComponent("bin")
+        let sessions = root.appendingPathComponent("sessions")
+        for d in [project, bin, sessions] { try fm.createDirectory(at: d, withIntermediateDirectories: true) }
+        defer { try? fm.removeItem(at: root) }
+        let exe = bin.appendingPathComponent("claude")
+        try fm.createSymbolicLink(at: exe, withDestinationURL: URL(fileURLWithPath: "/bin/sleep"))
+        let proc = Process()
+        proc.executableURL = exe
+        proc.arguments = ["300"]
+        proc.currentDirectoryURL = project
+        try proc.run()
+        defer { proc.terminate() }
+        usleep(300_000)
+        let pid = proc.processIdentifier
+        ClaudeSessions.directory = sessions
+        AgentTranscripts.claudeProjects = root.appendingPathComponent("no-projects")
+        let file = sessions.appendingPathComponent("\(pid).json")
+        let started = Date().addingTimeInterval(-120).timeIntervalSince1970 * 1000
+        func write(_ status: String, waitingFor: String? = nil, at: Double) throws {
+            var o: [String: Any] = ["pid": Int(pid), "sessionId": "abc", "cwd": project.path, "kind": "interactive", "entrypoint": "cli",
+                                    "name": "api-server", "nameSource": "derived", "startedAt": started, "status": status, "statusUpdatedAt": at]
+            if let waitingFor { o["waitingFor"] = waitingFor }
+            try JSONSerialization.data(withJSONObject: o).write(to: file, options: .atomic)
+        }
+        let monitor = AgentMonitor()
+        var cfg = AgentsConfig()
+        cfg.scanBrowsers = false
+        monitor.config = cfg
+        func me() -> Agent? { monitor.scanNow().first { $0.id == "proc:\(pid)" } }
+
+        try write("waiting", waitingFor: "permission to run Bash", at: started + 60_000)
+        var a = try XCTUnwrap(me())
+        XCTAssertEqual(a.signal, "session")
+        XCTAssertEqual(a.state, .waiting)
+        XCTAssertEqual(a.message, "Waiting for your permission — permission to run Bash")
+        XCTAssertTrue(a.detail.hasPrefix("api-server"), a.detail)
+        XCTAssertTrue(a.needsYou)
+
+        try write("busy", at: started + 70_000)
+        a = try XCTUnwrap(me())
+        XCTAssertEqual(a.state, .working)
+        XCTAssertFalse(a.needsYou)
+
+        try write("idle", at: started + 90_000)
+        a = try XCTUnwrap(me())
+        XCTAssertEqual(a.state, .done)
+        XCTAssertEqual(a.message, "Done — your turn")
+        XCTAssertTrue(a.needsYou)
+
+        // The file of a process that has exited is ignored.
+        proc.terminate()
+        proc.waitUntilExit()
+        XCTAssertNil(monitor.scanNow().first { $0.id == "proc:\(pid)" })
+    }
+}
+
+final class BannerAgentTests: XCTestCase {
+    func testBannerMeaning() {
+        XCTAssertEqual(AgentMonitor.bannerState("Claude · Fix login bug · Claude needs your permission to use Bash"), .waiting)
+        XCTAssertEqual(AgentMonitor.bannerState("Google Chrome · claude.ai · Claude has a question for you"), .waiting)
+        XCTAssertEqual(AgentMonitor.bannerState("Claude · Fix login bug · Task complete"), .done)
+        XCTAssertEqual(AgentMonitor.bannerState("Google Chrome · chatgpt.com · Codex · Your task is ready"), .done)
+    }
+
+    func testUnmatchedWebBannerBecomesItsOwnEntry() throws {
+        let tabs = [AppScripting.Tab(bundleId: "com.google.Chrome", window: 1, index: 3, url: "https://claude.ai/code/session_01ABC", title: "Claude Code")]
+        let b = NotificationBanners.Banner(id: "n1", app: "Google Chrome", bundleId: "com.google.Chrome", text: "Google Chrome · claude.ai · Fix flaky test · Done")
+        let a = try XCTUnwrap(AgentMonitor.agentFromBanner(b, state: .done, tabs: tabs))
+        XCTAssertEqual(a.name, "Claude Code")
+        XCTAssertEqual(a.state, .done)
+        XCTAssertEqual(a.focus, .tab(bundleId: "com.google.Chrome", url: "https://claude.ai/code/session_01ABC", title: "Claude Code"))
+        // No tab open: tapping opens the site.
+        let noTab = try XCTUnwrap(AgentMonitor.agentFromBanner(b, state: .done, tabs: []))
+        XCTAssertEqual(noTab.focus, .url("https://claude.ai/code"))
+        // Banners from apps that aren't agents are ignored.
+        XCTAssertNil(AgentMonitor.agentFromBanner(NotificationBanners.Banner(id: "n2", app: "Mail", bundleId: "com.apple.mail", text: "Mail · Lunch?"), state: .done, tabs: []))
     }
 }
