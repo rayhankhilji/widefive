@@ -274,7 +274,9 @@ The private key never goes in the repo. Back it up (`.build/artifacts/sparkle/Sp
 → password manager, then delete the file): if it's lost, installed copies can't verify updates anymore.
 If `gh` isn't logged in, add the secret by hand under Settings → Secrets and variables → Actions.
 
-**Each release:**
+**Each release:** bump `VERSION`, merge to main, then GitHub → Actions → **Release** → **Run workflow** with the new
+version (e.g. `v0.3.1`). It tags main, builds, signs the appcast and publishes; installed copies offer the update.
+Or from a terminal:
 
 ```bash
 echo 0.2.0 > VERSION && git commit -am "v0.2.0"
