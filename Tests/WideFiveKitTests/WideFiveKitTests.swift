@@ -184,8 +184,7 @@ final class AgentHooksTests: XCTestCase {
     }
 
     func testCodexAndCursorEvents() {
-        let c = parse(#"{"kind":"codex","pid":2,"tty":"ttys001","time":1,"event":{"type":"agent-turn-complete","turn-id":"t","last-assistant-message":"Done.
-Tests pass."}}"#)
+        let c = parse(#"{"kind":"codex","pid":2,"tty":"ttys001","time":1,"event":{"type":"agent-turn-complete","turn-id":"t","last-assistant-message":"Done.\nTests pass."}}"#)
         XCTAssertEqual(c?.state, .waiting)
         XCTAssertEqual(c?.message, "Done. Tests pass.")
         XCTAssertEqual(parse(#"{"kind":"cursor","pid":3,"tty":"","time":1,"event":{"hook_event_name":"stop","status":"completed","workspace_roots":["/Users/me/app"]}}"#)?.cwd, "/Users/me/app")
