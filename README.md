@@ -98,13 +98,15 @@ The Mario-style one: ? blocks, mushrooms, stars, breakable bricks, enemies to st
 
 **Launcher** (<kbd>⌃⌥⌘Space</kbd>): every mode, one swipe away.
 
-<img src="docs/media/stills/agents.png" width="100%" alt="Agents mode: Claude Code waiting for permission, a Codex tab waiting, Gemini CLI and Cursor working">
+<img src="docs/media/stills/home-agents.png" width="100%" alt="Home bar with the agent chips: two pulsing red, two working, +2 more">
 
 **It watches your coding agents.** Claude Code and Codex in a terminal, Cursor, the Claude and ChatGPT apps, Devin, Grok,
 and web agents in Chrome, Safari, Arc, Brave or Edge (Claude Code on the web, Codex, Devin, Jules, Copilot, Lovable, Bolt…).
 Each one gets a chip on the right of the home bar. The moment one stops and waits for you (a permission prompt, a question,
 a finished turn) its chip pulses red and a toast says who and why. Tap the chip and that terminal tab, app window or browser
 tab comes to the front, Spaces and all. Tap **Agents** in the launcher for the full list with what each one is doing.
+
+<img src="docs/media/stills/agents.png" width="100%" alt="Agents mode: Claude Code waiting for permission, a Codex tab waiting, Gemini CLI and Cursor working">
 
 <details>
 <summary>How it knows, and how to make it exact</summary>
@@ -142,7 +144,9 @@ Everything is tuned in `config.json`:
 }
 ```
 
-Put the chips anywhere with `{ "type": "widget", "name": "agents" }`.
+Put the chips anywhere with `{ "type": "widget", "name": "agents" }`. If something isn't showing up, run
+`widefive --agents 30` (or `/Applications/widefive.app/Contents/MacOS/widefive --agents 30`): it prints every agent process,
+journal, tab, badge and banner it can see, then watches for 30 seconds and reports what fires.
 
 </details>
 
@@ -245,7 +249,8 @@ widefive reads your Mac's model and sizes the strip to match: 1004 points on Mac
 ## Development
 
 ```bash
-swift test
+swift test                                                    # includes an end-to-end test that fakes a `claude` process + journal
+swift run widefive --agents 30                                # what the coding-agent monitor sees on this Mac, live for 30 s
 swift run widefive --snapshot race:demo shot.png 3 1004       # render any mode to a PNG
 swift run widefive --frames plumber:demo frames/ 4 1004 25 1  # PNG sequence → GIF/MP4 (how the media here was made)
 ```
